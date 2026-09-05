@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Inbox, CalendarClock, UtensilsCrossed, User } from "lucide-react";
+import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 
 const SUPABASE_URL = "https://cjjksssylejwxwbalury.supabase.co";
 const ANON_KEY =
@@ -50,6 +50,17 @@ const REJECT_REASONS = [
   "Guest count exceeds capacity",
   "Party slot / timing clash",
   "Other",
+];
+
+const FOOD_KINDS = ["starter_veg", "starter_non_veg", "main_veg", "main_non_veg", "dessert", "other"];
+const BEVERAGE_KINDS = ["beverage_alcohol", "beverage_non_alcohol"];
+
+const FOOD_QUOTA_CATEGORIES = [
+  ["starter_veg", "Veg Starters", 3],
+  ["starter_non_veg", "Non-Veg Starters", 3],
+  ["main_veg", "Veg Main Course", 2],
+  ["main_non_veg", "Non-Veg Main Course", 2],
+  ["dessert", "Desserts", 1],
 ];
 
 export default function App() {
@@ -106,10 +117,19 @@ export default function App() {
 
   const [categories, setCategories] = useState([]);
   const [menuLoading, setMenuLoading] = useState(false);
+  const [menuSection, setMenuSection] = useState("food"); // 'food' | 'beverage'
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryKind, setNewCategoryKind] = useState("starter_veg");
   const [newItemName, setNewItemName] = useState({}); // keyed by category_id
   const [menuError, setMenuError] = useState("");
+
+  const [packages, setPackages] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+  const [showPackageForm, setShowPackageForm] = useState(false);
+  const [editingPackageId, setEditingPackageId] = useState(null);
+  const [packageForm, setPackageForm] = useState(null);
+  const [packageError, setPackageError] = useState("");
+  const [packageSaving, setPackageSaving] = useState(false);
 
   const CATEGORY_KINDS = [
     ["starter_veg", "Starters (veg)"],
@@ -257,15 +277,39 @@ export default function App() {
   const loadBookings = useCallback(async (token, venueId) => {
     setBookingsLoading(true);
     try {
-      const data = await sb(
-        `/rest/v1/bookings?venue_id=eq.${venueId}&select=*,profiles(full_name,phone,email),venue_packages(name,price_per_head),booking_types(name)&order=requested_at.desc`,
-        { token }
+      const [data, pkgs, types] = await Promise.all([
+        sb(`/rest/v1/partner_bookings_view?venue_id=eq.${venueId}&order=requested_at.desc`, { token }),
+        sb(`/rest/v1/venue_packages?venue_id=eq.${venueId}&select=id,name,price_per_head`, { token }),
+        sb(`/rest/v1/booking_types?select=id,name`, { token }),
+      ]);
+      const pkgById = Object.fromEntries(pkgs.map((p) => [p.id, p]));
+      const typeById = Object.fromEntries(types.map((t) => [t.id, t]));
+      setBookings(
+        data.map((b) => ({
+          ...b,
+          venue_packages: pkgById[b.package_id] || null,
+          booking_types: typeById[b.booking_type_id] || null,
+        }))
       );
-      setBookings(data);
     } catch (e) {
       console.error(e);
     } finally {
       setBookingsLoading(false);
+    }
+  }, []);
+
+  const loadPackages = useCallback(async (token, venueId) => {
+    setPackagesLoading(true);
+    try {
+      const data = await sb(
+        `/rest/v1/venue_packages?venue_id=eq.${venueId}&select=*,menu_quota_rules(*)&order=price_per_head.asc`,
+        { token }
+      );
+      setPackages(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPackagesLoading(false);
     }
   }, []);
 
@@ -276,10 +320,16 @@ export default function App() {
   }, [partnerVenue]);
 
   useEffect(() => {
-    if (screen === "dashboard" && session && partnerVenue?.venue_id) {
+    if ((screen === "dashboard" || screen === "payments") && session && partnerVenue?.venue_id) {
       loadBookings(session.token, partnerVenue.venue_id);
     }
   }, [screen, session, partnerVenue, loadBookings]);
+
+  useEffect(() => {
+    if (screen === "packages" && session && partnerVenue?.venue_id) {
+      loadPackages(session.token, partnerVenue.venue_id);
+    }
+  }, [screen, session, partnerVenue, loadPackages]);
 
   async function handleAuth(e) {
     e.preventDefault();
@@ -596,6 +646,152 @@ export default function App() {
     }
   }
 
+  function openNewPackageForm() {
+    setPackageForm({
+      name: "",
+      description: "",
+      price_per_head: "",
+      duration_hours: "",
+      min_headcount: "",
+      max_headcount: "",
+      inclusions: "",
+      quotas: Object.fromEntries(
+        FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
+      ),
+    });
+    setEditingPackageId(null);
+    setPackageError("");
+    setShowPackageForm(true);
+  }
+
+  function openEditPackageForm(pkg) {
+    const quotas = Object.fromEntries(
+      FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => {
+        const existing = pkg.menu_quota_rules?.find((q) => q.category_kind === kind);
+        return [kind, { checked: !!existing, count: existing ? existing.quota_count : def }];
+      })
+    );
+    setPackageForm({
+      name: pkg.name || "",
+      description: pkg.description || "",
+      price_per_head: pkg.price_per_head ?? "",
+      duration_hours: pkg.duration_hours ?? "",
+      min_headcount: pkg.min_headcount ?? "",
+      max_headcount: pkg.max_headcount ?? "",
+      inclusions: (pkg.inclusions || []).join("\n"),
+      quotas,
+    });
+    setEditingPackageId(pkg.id);
+    setPackageError("");
+    setShowPackageForm(true);
+  }
+
+  function closePackageForm() {
+    setShowPackageForm(false);
+    setPackageError("");
+  }
+
+  async function savePackage(e) {
+    e.preventDefault();
+    setPackageError("");
+    if (!packageForm.name.trim()) {
+      setPackageError("Enter a package name.");
+      return;
+    }
+    const price = parseFloat(packageForm.price_per_head);
+    if (!price || price <= 0) {
+      setPackageError("Enter a valid price per person.");
+      return;
+    }
+    const minGuests = parseInt(packageForm.min_headcount, 10);
+    if (!minGuests || minGuests < 1) {
+      setPackageError("Enter a valid minimum guest count.");
+      return;
+    }
+    setPackageSaving(true);
+    try {
+      const body = {
+        venue_id: partnerVenue.venue_id,
+        name: packageForm.name.trim(),
+        description: packageForm.description.trim() || null,
+        price_per_head: price,
+        duration_hours: packageForm.duration_hours ? parseFloat(packageForm.duration_hours) : null,
+        min_headcount: minGuests,
+        max_headcount: packageForm.max_headcount ? parseInt(packageForm.max_headcount, 10) : null,
+        inclusions: packageForm.inclusions
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      };
+
+      let packageId = editingPackageId;
+      if (editingPackageId) {
+        await sb(`/rest/v1/venue_packages?id=eq.${editingPackageId}`, {
+          method: "PATCH",
+          token: session.token,
+          prefer: "return=minimal",
+          body,
+        });
+      } else {
+        const [row] = await sb("/rest/v1/venue_packages", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=representation",
+          body,
+        });
+        packageId = row.id;
+      }
+
+      await sb(`/rest/v1/menu_quota_rules?package_id=eq.${packageId}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+
+      const quotaRows = FOOD_QUOTA_CATEGORIES.filter(([kind]) => packageForm.quotas[kind]?.checked).map(
+        ([kind]) => ({
+          package_id: packageId,
+          category_kind: kind,
+          quota_count: packageForm.quotas[kind].count,
+        })
+      );
+      if (quotaRows.length > 0) {
+        await sb("/rest/v1/menu_quota_rules", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=minimal",
+          body: quotaRows,
+        });
+      }
+
+      setShowPackageForm(false);
+      await loadPackages(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setPackageError(e.message);
+    } finally {
+      setPackageSaving(false);
+    }
+  }
+
+  async function deletePackage(id) {
+    setPackageError("");
+    try {
+      await sb(`/rest/v1/menu_quota_rules?package_id=eq.${id}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+      await sb(`/rest/v1/venue_packages?id=eq.${id}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+      await loadPackages(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setPackageError(e.message);
+    }
+  }
+
   if (screen === "auth") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
@@ -902,6 +1098,12 @@ export default function App() {
   const filtered = bookings.filter((b) => activeTab === "all" || b.status === activeTab);
   const pendingCount = bookings.filter((b) => b.status === "pending").length;
   const upcomingCount = bookings.filter((b) => b.status === "accepted").length;
+  const menuSectionKinds = menuSection === "food" ? FOOD_KINDS : BEVERAGE_KINDS;
+  const visibleCategories = categories.filter((cat) => menuSectionKinds.includes(cat.kind));
+  const settlementBookings = bookings.filter((b) => ["accepted", "confirmed", "completed"].includes(b.status));
+  const pendingSettlementTotal = bookings
+    .filter((b) => b.status === "accepted")
+    .reduce((sum, b) => sum + Number(b.deposit_amount || 0), 0);
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
@@ -932,6 +1134,18 @@ export default function App() {
                 Menu
               </button>
               <button
+                className={`hover:text-teal-400 ${screen === "payments" ? "text-teal-400" : "text-slate-300"}`}
+                onClick={() => setScreen("payments")}
+              >
+                Payments
+              </button>
+              <button
+                className={`hover:text-teal-400 ${screen === "packages" ? "text-teal-400" : "text-slate-300"}`}
+                onClick={() => setScreen("packages")}
+              >
+                Packages
+              </button>
+              <button
                 className={`hover:text-teal-400 ${screen === "profile" ? "text-teal-400" : "text-slate-300"}`}
                 onClick={() => setScreen("profile")}
               >
@@ -948,6 +1162,9 @@ export default function App() {
             {menuOpen && (
               <div className="absolute right-0 top-10 w-48 bg-white text-stone-900 rounded-lg border border-stone-200 shadow-lg overflow-hidden z-10">
                 <p className="px-4 py-3 text-xs text-stone-400 border-b border-stone-100 truncate">{session.email}</p>
+                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50 sm:hidden" onClick={() => { setScreen("packages"); setMenuOpen(false); }}>
+                  Packages
+                </button>
                 <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50" onClick={() => { setScreen("settings"); setMenuOpen(false); }}>
                   Settings
                 </button>
@@ -967,6 +1184,7 @@ export default function App() {
         <style>{`@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
         {screen === "dashboard" && (
           <>
+        <p className="text-teal-600 text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>
         <h1 className="font-serif text-3xl mb-1">Booking requests</h1>
         <p className="text-stone-500 text-sm mb-6">{partnerVenue?.venues?.name}</p>
 
@@ -1018,11 +1236,11 @@ export default function App() {
               <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="font-medium">{b.profiles?.full_name || b.profiles?.email}</p>
+                    <p className="font-medium">{b.contact_name}</p>
                     <p className="text-sm text-stone-500">
                       {b.venue_packages?.name} · {b.event_date} at {b.event_time} · {b.headcount} guests
                     </p>
-                    {b.profiles?.phone && <p className="text-xs text-stone-400">{b.profiles.phone}</p>}
+                    <p className="text-xs text-stone-400 font-mono mt-1">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
                   </div>
                   <span className={`text-xs font-medium px-2 py-1 rounded ${statusColor[b.status]}`}>
                     {b.status.replace("_", " ")}
@@ -1044,9 +1262,13 @@ export default function App() {
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-stone-400">Contact</span>
-                    <span className="font-medium text-stone-700 text-right">
-                      {b.contact_mobile} · {b.contact_email}
-                    </span>
+                    {b.status === "confirmed" || b.status === "completed" ? (
+                      <span className="font-medium text-stone-700 text-right">
+                        {b.contact_mobile} · {b.contact_email}
+                      </span>
+                    ) : (
+                      <span className="italic text-stone-400 text-right">Unlocks once payment is completed</span>
+                    )}
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-stone-400">Booking type</span>
@@ -1163,11 +1385,11 @@ export default function App() {
                     <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white">
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <p className="font-medium">{b.profiles?.full_name || b.profiles?.email}</p>
+                          <p className="font-medium">{b.contact_name}</p>
                           <p className="text-sm text-stone-500">
                             {b.venue_packages?.name} · {b.event_date} at {b.event_time} · {b.headcount} guests
                           </p>
-                          <p className="text-xs text-stone-400 font-mono mt-1">Booking ID: {b.id}</p>
+                          <p className="text-xs text-stone-400 font-mono mt-1">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
                         </div>
                         <span className="text-xs font-medium px-2 py-1 rounded bg-blue-100 text-blue-800">accepted</span>
                       </div>
@@ -1194,10 +1416,31 @@ export default function App() {
 
         {screen === "menu" && (
           <div>
-            <h1 className="font-serif text-3xl mb-1">Menu & beverages</h1>
+            <h1 className="font-serif text-3xl mb-1">Menu & Beverages</h1>
             <p className="text-stone-500 text-sm mb-6">
               Manage categories and items for {partnerVenue?.venues?.name}. Changes are visible to customers immediately.
             </p>
+
+            <div className="flex gap-2 mb-6">
+              <button
+                type="button"
+                className={`text-sm px-4 py-2 rounded-full border ${
+                  menuSection === "food" ? "bg-slate-900 text-white border-slate-900" : "border-stone-300 text-stone-600"
+                }`}
+                onClick={() => { setMenuSection("food"); setNewCategoryKind("starter_veg"); }}
+              >
+                Food Menu
+              </button>
+              <button
+                type="button"
+                className={`text-sm px-4 py-2 rounded-full border ${
+                  menuSection === "beverage" ? "bg-slate-900 text-white border-slate-900" : "border-stone-300 text-stone-600"
+                }`}
+                onClick={() => { setMenuSection("beverage"); setNewCategoryKind("beverage_alcohol"); }}
+              >
+                Beverages
+              </button>
+            </div>
 
             <form onSubmit={addCategory} className="flex flex-wrap gap-2 mb-6 bg-white border border-stone-200 rounded-lg p-4">
               <input
@@ -1212,7 +1455,7 @@ export default function App() {
                 value={newCategoryKind}
                 onChange={(e) => setNewCategoryKind(e.target.value)}
               >
-                {CATEGORY_KINDS.map(([k, label]) => (
+                {CATEGORY_KINDS.filter(([k]) => menuSectionKinds.includes(k)).map(([k, label]) => (
                   <option key={k} value={k}>{label}</option>
                 ))}
               </select>
@@ -1223,7 +1466,7 @@ export default function App() {
             {menuLoading && <p className="text-stone-400 text-sm">Loading…</p>}
 
             <div className="flex flex-col gap-4">
-              {categories.map((cat) => (
+              {visibleCategories.map((cat) => (
                 <div key={cat.id} className="border border-stone-200 rounded-lg p-4 bg-white">
                   <div className="flex items-center justify-between mb-3">
                     <div>
@@ -1267,8 +1510,275 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              {!menuLoading && categories.length === 0 && (
-                <p className="text-stone-400 text-sm">No menu categories yet — add one above to get started.</p>
+              {!menuLoading && visibleCategories.length === 0 && (
+                <p className="text-stone-400 text-sm">No {menuSection === "food" ? "food" : "beverage"} categories yet — add one above to get started.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {screen === "payments" && (
+          <div>
+            <h1 className="font-serif text-3xl mb-1">Payments</h1>
+            <p className="text-stone-500 text-sm mb-6">Deposit settlement status for {partnerVenue?.venues?.name}.</p>
+
+            <div className="bg-white border border-stone-200 rounded-lg p-4 mb-6 max-w-sm">
+              <p className="text-xs text-stone-500">Pending settlement (accepted, unpaid)</p>
+              <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
+            </div>
+
+            {bookingsLoading && <p className="text-stone-400 text-sm">Loading…</p>}
+            <div className="flex flex-col gap-3">
+              {settlementBookings.map((b) => (
+                <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-stone-400 font-mono">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
+                    <p className="font-medium">{b.venue_packages?.name}</p>
+                    <p className="text-sm text-stone-500">{b.event_date}</p>
+                    <p className="text-xs text-stone-400 mt-1">
+                      Deposit {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
+                    </p>
+                  </div>
+                  <span
+                    className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${
+                      b.status === "accepted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
+                    {b.status === "accepted" ? "Pending settlement" : "Settled"}
+                  </span>
+                </div>
+              ))}
+              {!bookingsLoading && settlementBookings.length === 0 && (
+                <p className="text-stone-400 text-sm">No accepted, confirmed, or completed bookings yet.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {screen === "packages" && (
+          <div>
+            <h1 className="font-serif text-3xl mb-1">Packages</h1>
+            <p className="text-stone-500 text-sm mb-6">
+              Manage the packages customers can book at {partnerVenue?.venues?.name}.
+            </p>
+
+            {!showPackageForm && (
+              <button
+                type="button"
+                className="bg-teal-500 text-white text-sm font-medium px-4 py-2 rounded mb-6"
+                onClick={openNewPackageForm}
+              >
+                + Add package
+              </button>
+            )}
+
+            {showPackageForm && packageForm && (
+              <form onSubmit={savePackage} className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4 mb-6">
+                <h2 className="font-medium">{editingPackageId ? "Edit package" : "New package"}</h2>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Package name</label>
+                  <input
+                    type="text"
+                    required
+                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                    value={packageForm.name}
+                    onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Description</label>
+                  <textarea
+                    rows={2}
+                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                    value={packageForm.description}
+                    onChange={(e) => setPackageForm({ ...packageForm, description: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Price per person</label>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={packageForm.price_per_head}
+                      onChange={(e) => setPackageForm({ ...packageForm, price_per_head: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Duration</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[3, 4, 5, 6].map((h) => (
+                        <button
+                          type="button"
+                          key={h}
+                          className={`text-sm px-3 py-1.5 rounded border ${
+                            Number(packageForm.duration_hours) === h
+                              ? "bg-slate-900 text-white border-slate-900"
+                              : "border-stone-300 text-stone-600"
+                          }`}
+                          onClick={() => setPackageForm({ ...packageForm, duration_hours: h })}
+                        >
+                          {h} hrs
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className={`text-sm px-3 py-1.5 rounded border ${
+                          Number(packageForm.duration_hours) === 24
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "border-stone-300 text-stone-600"
+                        }`}
+                        onClick={() => setPackageForm({ ...packageForm, duration_hours: 24 })}
+                      >
+                        Full day
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Minimum guests</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={packageForm.min_headcount}
+                      onChange={(e) => setPackageForm({ ...packageForm, min_headcount: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Maximum guests (optional)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={packageForm.max_headcount}
+                      onChange={(e) => setPackageForm({ ...packageForm, max_headcount: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Inclusions (one per line)</label>
+                  <textarea
+                    rows={4}
+                    placeholder={"DJ & sound system\nStandard decor\nIn-house catering"}
+                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                    value={packageForm.inclusions}
+                    onChange={(e) => setPackageForm({ ...packageForm, inclusions: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-2">Food quotas</label>
+                  <div className="flex flex-col gap-3">
+                    {FOOD_QUOTA_CATEGORIES.map(([kind, label]) => {
+                      const q = packageForm.quotas[kind];
+                      return (
+                        <div key={kind} className="border border-stone-200 rounded-lg p-3">
+                          <label className="flex items-center gap-2 text-sm font-medium mb-2">
+                            <input
+                              type="checkbox"
+                              checked={q.checked}
+                              onChange={(e) =>
+                                setPackageForm({
+                                  ...packageForm,
+                                  quotas: { ...packageForm.quotas, [kind]: { ...q, checked: e.target.checked } },
+                                })
+                              }
+                            />
+                            {label}
+                          </label>
+                          {q.checked && (
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <button
+                                  type="button"
+                                  key={n}
+                                  className={`w-8 h-8 rounded-full border text-sm font-medium ${
+                                    q.count === n
+                                      ? "bg-teal-500 text-white border-teal-500"
+                                      : "border-stone-300 text-stone-600"
+                                  }`}
+                                  onClick={() =>
+                                    setPackageForm({
+                                      ...packageForm,
+                                      quotas: { ...packageForm.quotas, [kind]: { ...q, count: n } },
+                                    })
+                                  }
+                                >
+                                  {n}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {packageError && <p className="text-rose-600 text-sm">{packageError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    disabled={packageSaving}
+                    className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50"
+                  >
+                    {packageSaving ? "Saving…" : "Save package"}
+                  </button>
+                  <button type="button" className="text-sm text-stone-500 px-4 py-2" onClick={closePackageForm}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {packagesLoading && <p className="text-stone-400 text-sm">Loading…</p>}
+            <div className="flex flex-col gap-3">
+              {packages.map((p) => (
+                <div key={p.id} className="border border-stone-200 rounded-lg p-4 bg-white">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-medium">{p.name}</p>
+                      <p className="text-sm text-stone-500">
+                        {inr(p.price_per_head)} / head · {p.min_headcount}–{p.max_headcount || "∞"} guests
+                        {p.duration_hours ? ` · ${Number(p.duration_hours) === 24 ? "Full day" : `${p.duration_hours} hrs`}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex gap-3 shrink-0">
+                      <button type="button" className="text-xs text-teal-600" onClick={() => openEditPackageForm(p)}>
+                        Edit
+                      </button>
+                      <button type="button" className="text-xs text-rose-600" onClick={() => deletePackage(p.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {p.inclusions?.length > 0 && (
+                    <ul className="list-disc pl-4 text-xs text-stone-500 flex flex-col gap-0.5 mb-2">
+                      {p.inclusions.map((inc, i) => (
+                        <li key={i}>{inc}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {p.menu_quota_rules?.length > 0 && (
+                    <p className="text-xs text-stone-400">
+                      {p.menu_quota_rules
+                        .slice()
+                        .sort((a, b) => a.category_kind.localeCompare(b.category_kind))
+                        .map(
+                          (q) =>
+                            `${q.quota_count} ${FOOD_QUOTA_CATEGORIES.find(([k]) => k === q.category_kind)?.[1] || q.category_kind}`
+                        )
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+              {!packagesLoading && packages.length === 0 && (
+                <p className="text-stone-400 text-sm">No packages yet — add one above to get started.</p>
               )}
             </div>
           </div>
@@ -1393,6 +1903,7 @@ export default function App() {
           { key: "dashboard", label: "Requests", Icon: Inbox },
           { key: "upcoming", label: "Upcoming", Icon: CalendarClock },
           { key: "menu", label: "Menu", Icon: UtensilsCrossed },
+          { key: "payments", label: "Payments", Icon: Wallet },
           { key: "profile", label: "Profile", Icon: User },
         ].map(({ key, label, Icon }) => {
           const active = screen === key;

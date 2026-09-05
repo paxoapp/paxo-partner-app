@@ -45,6 +45,13 @@ const statusColor = {
   no_show: "bg-rose-100 text-rose-800",
 };
 
+const REJECT_REASONS = [
+  "Date not available",
+  "Guest count exceeds capacity",
+  "Party slot / timing clash",
+  "Other",
+];
+
 export default function App() {
   const [screen, setScreen] = useState("auth");
   const [session, setSession] = useState(null);
@@ -63,7 +70,8 @@ export default function App() {
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("pending");
   const [rejectingId, setRejectingId] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
+  const [rejectReasonOption, setRejectReasonOption] = useState("");
+  const [rejectReasonOther, setRejectReasonOther] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [actionError, setActionError] = useState("");
 
@@ -250,7 +258,7 @@ export default function App() {
     setBookingsLoading(true);
     try {
       const data = await sb(
-        `/rest/v1/bookings?venue_id=eq.${venueId}&select=*,profiles(full_name,phone,email),venue_packages(name)&order=requested_at.desc`,
+        `/rest/v1/bookings?venue_id=eq.${venueId}&select=*,profiles(full_name,phone,email),venue_packages(name,price_per_head),booking_types(name)&order=requested_at.desc`,
         { token }
       );
       setBookings(data);
@@ -559,10 +567,15 @@ export default function App() {
   }
 
   async function rejectBooking(id) {
-    if (!rejectReason.trim()) {
-      setActionError("A reason is required to reject a request.");
+    if (!rejectReasonOption) {
+      setActionError("Select a reason to reject this request.");
       return;
     }
+    if (rejectReasonOption === "Other" && !rejectReasonOther.trim()) {
+      setActionError("Please specify the reason.");
+      return;
+    }
+    const reason = rejectReasonOption === "Other" ? rejectReasonOther.trim() : rejectReasonOption;
     setActionError("");
     setActionLoading(id);
     try {
@@ -570,10 +583,11 @@ export default function App() {
         method: "PATCH",
         token: session.token,
         prefer: "return=minimal",
-        body: { status: "rejected", rejection_reason: rejectReason.trim() },
+        body: { status: "rejected", rejection_reason: reason },
       });
       setRejectingId(null);
-      setRejectReason("");
+      setRejectReasonOption("");
+      setRejectReasonOther("");
       await loadBookings(session.token, partnerVenue.venue_id);
     } catch (e) {
       setActionError(e.message);
@@ -1015,12 +1029,45 @@ export default function App() {
                   </span>
                 </div>
 
+                <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 mb-3 text-xs text-stone-600 flex flex-col gap-1.5">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-stone-400">Occasion</span>
+                    <span className="font-medium text-stone-700 text-right">
+                      {b.booking_types?.name === "Other" ? (b.occasion_other || "Other") : (b.booking_types?.name || "—")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-stone-400">Guests</span>
+                    <span className="font-medium text-stone-700 text-right">
+                      {b.headcount} ({b.male_count || 0} male, {b.female_count || 0} female)
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-stone-400">Contact</span>
+                    <span className="font-medium text-stone-700 text-right">
+                      {b.contact_mobile} · {b.contact_email}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-stone-400">Booking type</span>
+                    <span className={b.is_last_minute ? "font-bold text-rose-600" : "font-medium text-stone-700"}>
+                      {b.is_last_minute ? "Express Booking" : "Advance Booking"}
+                    </span>
+                  </div>
+                  {b.special_request && (
+                    <div className="pt-1.5 mt-0.5 border-t border-stone-200">
+                      <span className="text-stone-400 block mb-0.5">Special request</span>
+                      <span className="text-stone-700">{b.special_request}</span>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-wrap gap-4 text-xs text-stone-500 mb-3">
-                  <span>Total {inr(b.total_amount)}</span>
+                  <span>Estimated Package Value {inr(b.total_amount)}</span>
                   <span>
                     Deposit due {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
                   </span>
-                  {b.is_last_minute && <span className="text-rose-600 font-medium">Last-minute — non-cancellable</span>}
+                  {b.is_last_minute && <span className="text-rose-600 font-medium">Non-cancellable if accepted</span>}
                 </div>
 
                 {b.status === "pending" && (
@@ -1032,13 +1079,25 @@ export default function App() {
                     )}
                     {rejectingId === b.id ? (
                       <div className="flex flex-col gap-2">
-                        <input
-                          type="text"
-                          placeholder="Reason for rejecting (e.g. date unavailable)"
+                        <select
                           className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
-                          value={rejectReason}
-                          onChange={(e) => setRejectReason(e.target.value)}
-                        />
+                          value={rejectReasonOption}
+                          onChange={(e) => setRejectReasonOption(e.target.value)}
+                        >
+                          <option value="">Select a reason</option>
+                          {REJECT_REASONS.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                        {rejectReasonOption === "Other" && (
+                          <input
+                            type="text"
+                            placeholder="Specify the reason"
+                            className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                            value={rejectReasonOther}
+                            onChange={(e) => setRejectReasonOther(e.target.value)}
+                          />
+                        )}
                         <div className="flex gap-2">
                           <button
                             disabled={actionLoading === b.id}
@@ -1049,7 +1108,7 @@ export default function App() {
                           </button>
                           <button
                             className="text-sm text-stone-500 px-3 py-1.5"
-                            onClick={() => { setRejectingId(null); setRejectReason(""); setActionError(""); }}
+                            onClick={() => { setRejectingId(null); setRejectReasonOption(""); setRejectReasonOther(""); setActionError(""); }}
                           >
                             Cancel
                           </button>

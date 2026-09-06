@@ -112,11 +112,19 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
           body: payload,
         });
       } else {
-        const [venue] = await sb("/rest/v1/venues", {
+        // Mint the venue id client-side and use return=minimal. A freshly
+        // inserted venue matches no SELECT policy yet (the partner_users link
+        // below doesn't exist, status isn't 'approved', we're not an admin), so
+        // Prefer: return=representation round-trips a SELECT that RLS blocks —
+        // which PostgREST reports as a misleading "new row violates row-level
+        // security policy for table venues" (42501), even though the INSERT
+        // itself is allowed and the bearer token is valid.
+        const venueId = crypto.randomUUID();
+        await sb("/rest/v1/venues", {
           method: "POST",
           token: session.token,
-          prefer: "return=representation",
-          body: { ...payload, status: "submitted", submitted_at: new Date().toISOString() },
+          prefer: "return=minimal",
+          body: { id: venueId, ...payload, status: "submitted", submitted_at: new Date().toISOString() },
         });
         await sb("/rest/v1/partner_users", {
           method: "POST",
@@ -124,7 +132,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
           prefer: "return=minimal",
           body: {
             id: session.userId,
-            venue_id: venue.id,
+            venue_id: venueId,
             full_name: f.contact_person_name.trim(),
             phone: f.contact_phone.trim(),
           },

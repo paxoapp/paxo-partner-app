@@ -759,7 +759,8 @@ export default function App() {
         name: packageForm.name.trim(),
         description: packageForm.description.trim() || null,
         price_per_head: price,
-        duration_hours: packageForm.duration_hours ? parseFloat(packageForm.duration_hours) : null,
+        // No selection → let the column's default (3.0) apply; the column is NOT NULL.
+        duration_hours: packageForm.duration_hours ? parseFloat(packageForm.duration_hours) : 3,
         min_headcount: minGuests,
         max_headcount: packageForm.max_headcount ? parseInt(packageForm.max_headcount, 10) : null,
         inclusions: packageForm.inclusions

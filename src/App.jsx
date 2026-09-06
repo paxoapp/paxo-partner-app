@@ -67,6 +67,30 @@ const BEVERAGE_QUOTA_CATEGORIES = [
 
 const QUOTA_CATEGORIES = [...FOOD_QUOTA_CATEGORIES, ...BEVERAGE_QUOTA_CATEGORIES];
 
+// [singular, plural] per quota category kind, for "1 Dessert" vs "2 Desserts".
+const QUOTA_LABEL_FORMS = {
+  starter_veg: ["Veg Starter", "Veg Starters"],
+  starter_non_veg: ["Non-Veg Starter", "Non-Veg Starters"],
+  main_veg: ["Veg Main Course", "Veg Main Courses"],
+  main_non_veg: ["Non-Veg Main Course", "Non-Veg Main Courses"],
+  dessert: ["Dessert", "Desserts"],
+  wine: ["Wine", "Wines"],
+  beer: ["Beer", "Beers"],
+  whisky: ["Whisky", "Whiskies"],
+  vodka: ["Vodka", "Vodkas"],
+  rum: ["Rum", "Rums"],
+  gin: ["Gin", "Gins"],
+  classic_cocktails: ["Classic Cocktail", "Classic Cocktails"],
+  mocktails: ["Mocktail", "Mocktails"],
+  soft_beverages: ["Soft Beverage", "Soft Beverages"],
+};
+
+function quotaLabel(kind, count) {
+  const forms = QUOTA_LABEL_FORMS[kind];
+  if (!forms) return QUOTA_CATEGORIES.find(([k]) => k === kind)?.[1] || kind;
+  return count === 1 ? forms[0] : forms[1];
+}
+
 export default function App() {
   const [screen, setScreen] = useState("auth");
   const [session, setSession] = useState(null);
@@ -1810,6 +1834,11 @@ export default function App() {
                     value={packageForm.inclusions}
                     onChange={(e) => setPackageForm({ ...packageForm, inclusions: e.target.value })}
                   />
+                  <p className="text-xs text-stone-400 mt-1">
+                    Use this for things not already covered by your quota selections above (e.g. welcome
+                    drink, decor, DJ). Avoid restating food or beverage counts you've already set as
+                    quotas — customers see both, and mismatched numbers look confusing.
+                  </p>
                 </div>
 
                 <div>
@@ -1968,10 +1997,7 @@ export default function App() {
                       {p.menu_quota_rules
                         .slice()
                         .sort((a, b) => a.category_kind.localeCompare(b.category_kind))
-                        .map(
-                          (q) =>
-                            `${q.quota_count} ${QUOTA_CATEGORIES.find(([k]) => k === q.category_kind)?.[1] || q.category_kind}`
-                        )
+                        .map((q) => `${q.quota_count} ${quotaLabel(q.category_kind, q.quota_count)}`)
                         .join(" · ")}
                     </p>
                   )}

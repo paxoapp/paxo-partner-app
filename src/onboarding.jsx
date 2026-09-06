@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { sb, uploadPartnerDocument } from "./supabase";
+import StatusStepper from "./StatusStepper";
 
 export const VENUE_TYPES = [
   "Banquet Hall",
@@ -357,6 +358,10 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
           >
             {VENUE_STATUS_LABELS[status] || status}
           </span>
+        </div>
+
+        <div className="mb-6">
+          <StatusStepper venue={venue} dark />
         </div>
 
         {status === "submitted" && (

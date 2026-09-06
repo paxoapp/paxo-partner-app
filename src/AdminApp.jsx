@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { sb, signIn, fetchAdminRow, signedDocumentUrl } from "./supabase";
 import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
+import StatusStepper from "./StatusStepper";
 
 const TABS = [
   ["submitted", "Submitted"],
@@ -45,29 +46,91 @@ function StatusBadge({ status, verified }) {
   );
 }
 
-function DocLink({ session, path, label }) {
-  const [state, setState] = useState("idle"); // idle | loading | error
-  const [err, setErr] = useState("");
+function DocLink({ path, label, onView }) {
   if (!path) return <span className="text-stone-400">{label}: not provided</span>;
-  async function open() {
-    setState("loading");
-    setErr("");
-    try {
-      const url = await signedDocumentUrl(session.token, path);
-      window.open(url, "_blank", "noopener");
-      setState("idle");
-    } catch (e) {
-      setState("error");
-      setErr(e.message || "Couldn't open document");
-    }
-  }
   return (
-    <span className="flex flex-col">
-      <button onClick={open} className="text-teal-700 underline text-left w-fit">
-        {label}: {state === "loading" ? "opening…" : "view document"}
-      </button>
-      {state === "error" && <span className="text-xs text-rose-600">{err}</span>}
-    </span>
+    <button onClick={() => onView({ path, label })} className="text-teal-700 underline text-left w-fit">
+      {label}: view document
+    </button>
+  );
+}
+
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|heic|avif)$/i;
+
+// In-app document viewer. Signs a short-lived URL for the private object and
+// renders it inline (image or PDF iframe). Closes on the X button, the Esc key,
+// or a click on the backdrop.
+function DocViewerModal({ session, doc, onClose }) {
+  const [url, setUrl] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setUrl("");
+    setErr("");
+    signedDocumentUrl(session.token, doc.path)
+      .then((u) => !cancelled && setUrl(u))
+      .catch((e) => !cancelled && setErr(e.message || "Couldn't load document"));
+    return () => {
+      cancelled = true;
+    };
+  }, [session.token, doc.path]);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isImage = IMAGE_EXT.test(doc.path);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={doc.label}
+    >
+      <div
+        className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200">
+          <p className="text-sm font-medium">{doc.label}</p>
+          <button
+            onClick={onClose}
+            aria-label="Close document viewer"
+            className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto bg-slate-100 flex items-center justify-center min-h-[300px]">
+          {err ? (
+            <p className="text-rose-600 text-sm p-6 text-center">{err}</p>
+          ) : !url ? (
+            <p className="text-slate-400 text-sm p-6">Loading…</p>
+          ) : isImage ? (
+            <img src={url} alt={doc.label} className="max-w-full max-h-[78vh] object-contain" />
+          ) : (
+            <iframe title={doc.label} src={url} className="w-full h-[78vh] border-0 bg-white" />
+          )}
+        </div>
+        {url && (
+          <div className="px-4 py-2 border-t border-slate-200 text-right">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-teal-700 underline"
+            >
+              Open in new tab
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -117,6 +180,7 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [viewingDoc, setViewingDoc] = useState(null);
 
   async function patch(body, action, note) {
     setBusy(true);
@@ -138,7 +202,17 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
     }
   }
 
-  const approveStage1 = () => patch({ status: "under_review", reviewed_at: nowIso() }, "approve_stage1");
+  const approveStage1 = () =>
+    patch(
+      {
+        status: "under_review",
+        reviewed_at: nowIso(),
+        // Stamp the basic-review clearance once, permanently — the stepper uses
+        // it to place a later rejection at the right step.
+        ...(venue.stage1_cleared_at ? {} : { stage1_cleared_at: nowIso() }),
+      },
+      "approve_stage1"
+    );
   const reject = (text) =>
     patch({ status: "rejected", rejection_note: text, reviewed_at: nowIso() }, "reject", text);
   const approveVerified = () =>
@@ -169,6 +243,10 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
       </div>
 
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <StatusStepper venue={venue} />
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Stage 1 — Basic details</h3>
         <Row label="Owner name" value={venue.owner_name} />
         <Row label="Contact person" value={venue.contact_person_name} />
@@ -192,9 +270,9 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         {hasGst ? (
           <div className="flex flex-col gap-2 text-sm">
             <Row label="GST number" value={venue.gst_no} />
-            <DocLink session={session} path={venue.gst_document_url} label="GST document" />
-            <DocLink session={session} path={venue.liquor_license_url} label="Liquor license" />
-            <DocLink session={session} path={venue.fssai_license_url} label="FSSAI license" />
+            <DocLink path={venue.gst_document_url} label="GST document" onView={setViewingDoc} />
+            <DocLink path={venue.liquor_license_url} label="Liquor license" onView={setViewingDoc} />
+            <DocLink path={venue.fssai_license_url} label="FSSAI license" onView={setViewingDoc} />
           </div>
         ) : (
           <p className="text-sm text-amber-700">Awaiting documents from partner.</p>
@@ -268,6 +346,10 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
       {rejecting && (
         <RejectForm busy={busy} onConfirm={reject} onCancel={() => setRejecting(false)} />
+      )}
+
+      {viewingDoc && (
+        <DocViewerModal session={session} doc={viewingDoc} onClose={() => setViewingDoc(null)} />
       )}
     </div>
   );

@@ -1231,7 +1231,14 @@ export default function App() {
                 Profile
               </button>
             </nav>
-            <span className="text-slate-300 hidden sm:inline">{partnerVenue?.venues?.name}</span>
+            <span className="text-slate-300 hidden sm:inline-flex items-center gap-1.5">
+              {partnerVenue?.venues?.name}
+              {partnerVenue?.venues?.is_verified && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide bg-teal-400/20 text-teal-300 px-1.5 py-0.5 rounded-full">
+                  ✓ Verified
+                </span>
+              )}
+            </span>
             <button
               className="w-8 h-8 rounded-full bg-teal-400 text-stone-900 font-semibold flex items-center justify-center text-xs"
               onClick={() => setMenuOpen((v) => !v)}

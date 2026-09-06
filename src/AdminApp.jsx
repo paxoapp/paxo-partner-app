@@ -13,6 +13,8 @@ const TABS = [
 
 const nowIso = () => new Date().toISOString();
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
+const inr = (n) =>
+  Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 // Central place a real notification would fire from once providers exist.
 function logStatusChange(venue, action, note) {
@@ -359,6 +361,195 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   );
 }
 
+const SETTLEMENT_TABS = [
+  ["pending", "Pending"],
+  ["settled", "Settled"],
+  ["all", "All"],
+];
+
+// Records that a manual bank transfer to a partner has happened. The DB trigger
+// on `payments` silently reverts any field other than settlement_status /
+// settled_at, so a tampered PATCH can't alter a real financial record here.
+function Settlements({ session }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState("pending");
+  const [confirming, setConfirming] = useState(null); // payment row awaiting confirmation
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await sb(
+        "/rest/v1/payments?status=eq.paid&select=id,amount,platform_fee_amount,partner_payout_amount,paid_at,settlement_status,settled_at,payment_type,bookings(event_date,venues(name))&order=paid_at.desc.nullslast",
+        { token: session.token }
+      );
+      setRows(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function markSettled(p) {
+    setBusyId(p.id);
+    setError("");
+    try {
+      const [updated] = await sb(`/rest/v1/payments?id=eq.${p.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: { settlement_status: "settled", settled_at: nowIso() },
+      });
+      setRows((rs) => rs.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
+      setConfirming(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const visible = rows.filter((r) => tab === "all" || r.settlement_status === tab);
+  const counts = rows.reduce((a, r) => {
+    a[r.settlement_status] = (a[r.settlement_status] || 0) + 1;
+    return a;
+  }, {});
+  const pendingPayout = rows
+    .filter((r) => r.settlement_status === "pending")
+    .reduce((s, r) => s + Number(r.partner_payout_amount || 0), 0);
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Settlements</h1>
+      <p className="text-sm text-slate-500 mb-4">
+        Paid customer payments and the payout owed to each partner.{" "}
+        {inr(pendingPayout)} pending across {counts.pending || 0} payment
+        {(counts.pending || 0) === 1 ? "" : "s"}.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {SETTLEMENT_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`text-sm px-3 py-1.5 rounded-full border ${
+              tab === key ? "bg-slate-900 text-white border-slate-900" : "border-slate-300 text-slate-600"
+            }`}
+          >
+            {label}
+            {key !== "all" && counts[key] ? ` (${counts[key]})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : visible.length === 0 ? (
+        <p className="text-slate-400 text-sm">No payments in this view.</p>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">Venue</th>
+                <th className="text-left px-4 py-2">Event date</th>
+                <th className="text-right px-4 py-2">Amount paid</th>
+                <th className="text-right px-4 py-2">Platform fee</th>
+                <th className="text-right px-4 py-2">Partner payout</th>
+                <th className="text-left px-4 py-2">Paid on</th>
+                <th className="text-left px-4 py-2">Settlement</th>
+                <th className="px-4 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((p) => (
+                <tr key={p.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2.5">
+                    <span className="font-medium">{p.bookings?.venues?.name || "—"}</span>
+                    <span className="block text-xs text-slate-400 capitalize">{p.payment_type}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.bookings?.event_date)}</td>
+                  <td className="px-4 py-2.5 text-right">{inr(p.amount)}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500">{inr(p.platform_fee_amount)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium">{inr(p.partner_payout_amount)}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.paid_at)}</td>
+                  <td className="px-4 py-2.5">
+                    {p.settlement_status === "settled" ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                        Settled · {fmtDate(p.settled_at)}
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                        Pending
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {p.settlement_status === "pending" && (
+                      <button
+                        onClick={() => setConfirming(p)}
+                        disabled={busyId === p.id}
+                        className="text-xs bg-slate-900 text-white rounded px-3 py-1.5 disabled:opacity-50"
+                      >
+                        Mark as Settled
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {confirming && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setConfirming(null)}
+        >
+          <div
+            className="bg-white rounded-lg max-w-sm w-full p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="font-medium mb-1">Mark this settlement complete?</p>
+            <p className="text-sm text-slate-600 mb-4">
+              Confirm you've transferred {inr(confirming.partner_payout_amount)} to{" "}
+              {confirming.bookings?.venues?.name || "this partner"}. This only records that the bank
+              transfer has actually happened — it doesn't move any money.
+            </p>
+            {error && <p className="text-rose-600 text-sm mb-2">{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirming(null)}
+                className="text-sm text-slate-500 px-3 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => markSettled(confirming)}
+                disabled={busyId === confirming.id}
+                className="text-sm bg-emerald-600 text-white rounded px-3 py-1.5 disabled:opacity-50"
+              >
+                {busyId === confirming.id ? "Saving…" : "Yes, mark as settled"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [session, setSession] = useState(null);
   const [admin, setAdmin] = useState(null);
@@ -367,6 +558,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
+  const [section, setSection] = useState("onboarding"); // 'onboarding' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -488,8 +680,34 @@ export default function AdminApp() {
         </div>
       </header>
 
+      <nav className="bg-white border-b border-slate-200">
+        <div className="max-w-5xl mx-auto px-5 flex gap-1">
+          {[
+            ["onboarding", "Onboarding"],
+            ["settlements", "Settlements"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setSection(key);
+                setSelectedId(null);
+              }}
+              className={`text-sm px-3 py-3 border-b-2 -mb-px ${
+                section === key
+                  ? "border-slate-900 text-slate-900 font-medium"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
       <main className="max-w-5xl mx-auto px-5 py-6">
-        {selected ? (
+        {section === "settlements" ? (
+          <Settlements session={session} />
+        ) : selected ? (
           <VenueDetail
             session={session}
             venue={selected}

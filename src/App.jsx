@@ -67,6 +67,12 @@ const BEVERAGE_QUOTA_CATEGORIES = [
 
 const QUOTA_CATEGORIES = [...FOOD_QUOTA_CATEGORIES, ...BEVERAGE_QUOTA_CATEGORIES];
 
+// Hard-liquor / branded beverage categories that use a structured item pool:
+// the partner picks which specific menu_items (brands) back the quota, written
+// to package_item_pool. classic_cocktails / mocktails / soft_beverages are NOT
+// here — they stay free-flow, described via the Inclusions text field.
+const POOL_QUOTA_KINDS = ["wine", "beer", "whisky", "vodka", "rum", "gin"];
+
 // [singular, plural] per quota category kind, for "1 Dessert" vs "2 Desserts".
 const QUOTA_LABEL_FORMS = {
   starter_veg: ["Veg Starter", "Veg Starters"],
@@ -180,6 +186,21 @@ export default function App() {
     ["soft_beverages", "Soft Beverages"],
     ["other", "Other"],
   ];
+
+  // This venue's menu items for a given category kind (e.g. all "beer" items),
+  // across however many categories of that kind the venue has created.
+  const itemsForKind = (kind) =>
+    categories
+      .filter((c) => c.kind === kind)
+      .flatMap((c) => c.menu_items || [])
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+  const menuItemById = {};
+  categories.forEach((c) =>
+    (c.menu_items || []).forEach((it) => {
+      menuItemById[it.id] = { ...it, kind: c.kind };
+    })
+  );
 
   const loadMenu = useCallback(async (token, venueId) => {
     setMenuLoading(true);
@@ -371,7 +392,7 @@ export default function App() {
     setPackagesLoading(true);
     try {
       const data = await sb(
-        `/rest/v1/venue_packages?venue_id=eq.${venueId}&select=*,menu_quota_rules(*)&order=price_per_head.asc`,
+        `/rest/v1/venue_packages?venue_id=eq.${venueId}&select=*,menu_quota_rules(*),package_item_pool(menu_item_id)&order=price_per_head.asc`,
         { token }
       );
       setPackages(data);
@@ -397,8 +418,10 @@ export default function App() {
   useEffect(() => {
     if (screen === "packages" && session && partnerVenue?.venue_id) {
       loadPackages(session.token, partnerVenue.venue_id);
+      // Menu items back the package builder's brand-pool pickers.
+      loadMenu(session.token, partnerVenue.venue_id);
     }
-  }, [screen, session, partnerVenue, loadPackages]);
+  }, [screen, session, partnerVenue, loadPackages, loadMenu]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
@@ -726,6 +749,7 @@ export default function App() {
           BEVERAGE_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: false, count: def }])
         ),
       },
+      poolItemIds: [],
     });
     setEditingPackageId(null);
     setPackageError("");
@@ -749,6 +773,7 @@ export default function App() {
       inclusions: (pkg.inclusions || []).join("\n"),
       includes_alcohol: pkg.includes_alcohol ?? true,
       quotas,
+      poolItemIds: (pkg.package_item_pool || []).map((r) => r.menu_item_id),
     });
     setEditingPackageId(pkg.id);
     setPackageError("");
@@ -777,6 +802,28 @@ export default function App() {
       setPackageError("Enter a valid minimum guest count.");
       return;
     }
+
+    // Brand-pool categories: the quota can't promise more choice than exists.
+    if (packageForm.includes_alcohol) {
+      for (const kind of POOL_QUOTA_KINDS) {
+        const q = packageForm.quotas[kind];
+        if (!q?.checked) continue;
+        const label = QUOTA_CATEGORIES.find(([k]) => k === kind)?.[1] || kind;
+        const kindItems = itemsForKind(kind);
+        if (kindItems.length === 0) {
+          setPackageError(`Add ${label} items in Menu Management before using a ${label} quota.`);
+          return;
+        }
+        const picked = kindItems.filter((it) => packageForm.poolItemIds.includes(it.id)).length;
+        if (q.count > picked) {
+          setPackageError(
+            `${label}: “Any ${q.count}” needs at least ${q.count} items in the pool — only ${picked} selected.`
+          );
+          return;
+        }
+      }
+    }
+
     setPackageSaving(true);
     try {
       const body = {
@@ -819,29 +866,46 @@ export default function App() {
         prefer: "return=minimal",
       });
 
+      // Structured quotas are written for food kinds and, when alcohol is
+      // included, the six brand-pool kinds. Cocktails / mocktails / soft drinks
+      // are free-flow and carry no quota row.
       const quotaRows = QUOTA_CATEGORIES.filter(([kind]) => {
         if (!packageForm.quotas[kind]?.checked) return false;
-        if (
-          !packageForm.includes_alcohol &&
-          BEVERAGE_KINDS.includes(kind) &&
-          !NON_ALCOHOLIC_QUOTA_KINDS.includes(kind)
-        ) {
-          return false;
-        }
-        return true;
-      }).map(
-        ([kind]) => ({
-          package_id: packageId,
-          category_kind: kind,
-          quota_count: packageForm.quotas[kind].count,
-        })
-      );
+        if (FOOD_QUOTA_CATEGORIES.some(([k]) => k === kind)) return true;
+        return packageForm.includes_alcohol && POOL_QUOTA_KINDS.includes(kind);
+      }).map(([kind]) => ({
+        package_id: packageId,
+        category_kind: kind,
+        quota_count: packageForm.quotas[kind].count,
+      }));
       if (quotaRows.length > 0) {
         await sb("/rest/v1/menu_quota_rules", {
           method: "POST",
           token: session.token,
           prefer: "return=minimal",
           body: quotaRows,
+        });
+      }
+
+      // Brand pools: replace the whole set for this package.
+      await sb(`/rest/v1/package_item_pool?package_id=eq.${packageId}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+      const poolRows = POOL_QUOTA_KINDS.filter(
+        (kind) => packageForm.includes_alcohol && packageForm.quotas[kind]?.checked
+      ).flatMap((kind) =>
+        itemsForKind(kind)
+          .filter((it) => packageForm.poolItemIds.includes(it.id))
+          .map((it) => ({ package_id: packageId, menu_item_id: it.id }))
+      );
+      if (poolRows.length > 0) {
+        await sb("/rest/v1/package_item_pool", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=minimal",
+          body: poolRows,
         });
       }
 
@@ -1865,59 +1929,135 @@ export default function App() {
                   </div>
                   {!packageForm.includes_alcohol && (
                     <p className="text-xs text-stone-400 mt-2">
-                      Non-alcoholic package — only Mocktails and Soft Beverages are available below.
+                      Non-alcoholic package — no beverage quotas. List any mocktails or soft drinks in
+                      the Inclusions field above.
                     </p>
                   )}
                 </div>
 
                 {(() => {
+                  const setQuota = (kind, patch) =>
+                    setPackageForm((f) => ({
+                      ...f,
+                      quotas: { ...f.quotas, [kind]: { ...f.quotas[kind], ...patch } },
+                    }));
+
                   const renderQuotaRow = ([kind, label]) => {
                     const q = packageForm.quotas[kind];
                     if (!q) return null;
+                    const isPool = POOL_QUOTA_KINDS.includes(kind);
+                    const kindItems = isPool ? itemsForKind(kind) : [];
+                    const pickedCount = kindItems.filter((it) =>
+                      packageForm.poolItemIds.includes(it.id)
+                    ).length;
+                    const shortfall = isPool && q.checked && kindItems.length > 0 && q.count > pickedCount;
+
                     return (
                       <div key={kind} className="border border-stone-200 rounded-lg p-3">
                         <label className="flex items-center gap-2 text-sm font-medium mb-2">
                           <input
                             type="checkbox"
                             checked={q.checked}
-                            onChange={(e) =>
-                              setPackageForm({
-                                ...packageForm,
-                                quotas: { ...packageForm.quotas, [kind]: { ...q, checked: e.target.checked } },
-                              })
-                            }
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setPackageForm((f) => ({
+                                ...f,
+                                quotas: { ...f.quotas, [kind]: { ...f.quotas[kind], checked } },
+                                // Unchecking a brand-pool quota drops its picked items.
+                                poolItemIds:
+                                  checked || !isPool
+                                    ? f.poolItemIds
+                                    : f.poolItemIds.filter(
+                                        (id) => !kindItems.some((it) => it.id === id)
+                                      ),
+                              }));
+                            }}
                           />
                           {label}
                         </label>
                         {q.checked && (
-                          <div className="flex gap-2">
-                            {[1, 2, 3, 4, 5].map((n) => (
-                              <button
-                                type="button"
-                                key={n}
-                                className={`w-8 h-8 rounded-full border text-sm font-medium ${
-                                  q.count === n
-                                    ? "bg-teal-500 text-white border-teal-500"
-                                    : "border-stone-300 text-stone-600"
-                                }`}
-                                onClick={() =>
-                                  setPackageForm({
-                                    ...packageForm,
-                                    quotas: { ...packageForm.quotas, [kind]: { ...q, count: n } },
-                                  })
-                                }
-                              >
-                                {n}
-                              </button>
-                            ))}
-                          </div>
+                          <>
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <button
+                                  type="button"
+                                  key={n}
+                                  className={`w-8 h-8 rounded-full border text-sm font-medium ${
+                                    q.count === n
+                                      ? "bg-teal-500 text-white border-teal-500"
+                                      : "border-stone-300 text-stone-600"
+                                  }`}
+                                  onClick={() => setQuota(kind, { count: n })}
+                                >
+                                  {n}
+                                </button>
+                              ))}
+                            </div>
+
+                            {isPool && (
+                              <div className="mt-3">
+                                {kindItems.length === 0 ? (
+                                  <p className="text-xs text-amber-700">
+                                    You haven't added any {label} items yet —{" "}
+                                    <button
+                                      type="button"
+                                      className="underline text-teal-700"
+                                      onClick={() => setScreen("menu")}
+                                    >
+                                      add them in Menu Management
+                                    </button>{" "}
+                                    first.
+                                  </p>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-stone-500 mb-1.5">
+                                      Which {label} items are in this package's pool?{" "}
+                                      <span className="text-stone-400">({pickedCount} selected)</span>
+                                    </p>
+                                    <div className="flex flex-col gap-1">
+                                      {kindItems.map((it) => {
+                                        const on = packageForm.poolItemIds.includes(it.id);
+                                        return (
+                                          <label key={it.id} className="flex items-center gap-2 text-sm">
+                                            <input
+                                              type="checkbox"
+                                              checked={on}
+                                              onChange={() =>
+                                                setPackageForm((f) => ({
+                                                  ...f,
+                                                  poolItemIds: on
+                                                    ? f.poolItemIds.filter((x) => x !== it.id)
+                                                    : [...f.poolItemIds, it.id],
+                                                }))
+                                              }
+                                            />
+                                            <span className={it.is_available ? "" : "text-stone-400"}>
+                                              {it.name}
+                                              {!it.is_available && " (unavailable)"}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    {shortfall && (
+                                      <p className="text-xs text-rose-600 mt-1.5">
+                                        “Any {q.count}” needs at least {q.count} items selected —{" "}
+                                        {pickedCount} checked.
+                                      </p>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     );
                   };
-                  const beverageRows = packageForm.includes_alcohol
-                    ? BEVERAGE_QUOTA_CATEGORIES
-                    : BEVERAGE_QUOTA_CATEGORIES.filter(([k]) => NON_ALCOHOLIC_QUOTA_KINDS.includes(k));
+
+                  const beverageRows = BEVERAGE_QUOTA_CATEGORIES.filter(([k]) =>
+                    POOL_QUOTA_KINDS.includes(k)
+                  );
                   return (
                     <>
                       <div>
@@ -1926,7 +2066,17 @@ export default function App() {
                       </div>
                       <div>
                         <label className="text-sm font-medium block mb-2">Beverage quotas</label>
-                        <div className="flex flex-col gap-3">{beverageRows.map(renderQuotaRow)}</div>
+                        {packageForm.includes_alcohol ? (
+                          <div className="flex flex-col gap-3">{beverageRows.map(renderQuotaRow)}</div>
+                        ) : (
+                          <p className="text-xs text-stone-400">
+                            None — this is a non-alcoholic package.
+                          </p>
+                        )}
+                        <p className="text-xs text-stone-400 mt-2">
+                          Cocktails, mocktails and soft drinks are free-flow (no quota) — describe them
+                          in the Inclusions field above.
+                        </p>
                       </div>
                     </>
                   );
@@ -1999,6 +2149,21 @@ export default function App() {
                         .slice()
                         .sort((a, b) => a.category_kind.localeCompare(b.category_kind))
                         .map((q) => `${q.quota_count} ${quotaLabel(q.category_kind, q.quota_count)}`)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {p.package_item_pool?.length > 0 && (
+                    <p className="text-xs text-stone-400 mt-1">
+                      {POOL_QUOTA_KINDS.map((kind) => {
+                        const names = p.package_item_pool
+                          .map((r) => menuItemById[r.menu_item_id])
+                          .filter((it) => it && it.kind === kind)
+                          .map((it) => it.name);
+                        if (!names.length) return null;
+                        const label = QUOTA_CATEGORIES.find(([k]) => k === kind)?.[1] || kind;
+                        return `${label}: ${names.join(", ")}`;
+                      })
+                        .filter(Boolean)
                         .join(" · ")}
                     </p>
                   )}

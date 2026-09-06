@@ -147,6 +147,9 @@ export default function App() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryKind, setNewCategoryKind] = useState("starter_veg");
   const [newItemName, setNewItemName] = useState({}); // keyed by category_id
+  const [newItemDesc, setNewItemDesc] = useState({}); // keyed by category_id
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editItemDesc, setEditItemDesc] = useState("");
   const [menuError, setMenuError] = useState("");
 
   const [packages, setPackages] = useState([]);
@@ -234,15 +237,17 @@ export default function App() {
   async function addItem(categoryId) {
     const name = (newItemName[categoryId] || "").trim();
     if (!name) return;
+    const description = (newItemDesc[categoryId] || "").trim() || null;
     setMenuError("");
     try {
       await sb("/rest/v1/menu_items", {
         method: "POST",
         token: session.token,
         prefer: "return=minimal",
-        body: { venue_id: partnerVenue.venue_id, category_id: categoryId, name },
+        body: { venue_id: partnerVenue.venue_id, category_id: categoryId, name, description },
       });
       setNewItemName({ ...newItemName, [categoryId]: "" });
+      setNewItemDesc({ ...newItemDesc, [categoryId]: "" });
       await loadMenu(session.token, partnerVenue.venue_id);
     } catch (e) {
       setMenuError(e.message);
@@ -266,6 +271,28 @@ export default function App() {
   async function deleteItem(id) {
     try {
       await sb(`/rest/v1/menu_items?id=eq.${id}`, { method: "DELETE", token: session.token, prefer: "return=minimal" });
+      await loadMenu(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setMenuError(e.message);
+    }
+  }
+
+  function startEditItemDesc(item) {
+    setEditingItemId(item.id);
+    setEditItemDesc(item.description || "");
+  }
+
+  async function saveItemDescription(id) {
+    setMenuError("");
+    try {
+      await sb(`/rest/v1/menu_items?id=eq.${id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { description: editItemDesc.trim() || null },
+      });
+      setEditingItemId(null);
+      setEditItemDesc("");
       await loadMenu(session.token, partnerVenue.venue_id);
     } catch (e) {
       setMenuError(e.message);
@@ -1530,34 +1557,73 @@ export default function App() {
                   </div>
                   <div className="flex flex-col gap-2 mb-3">
                     {cat.menu_items?.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-2 last:border-0">
-                        <span className={item.is_available ? "" : "text-stone-400 line-through"}>{item.name}</span>
-                        <div className="flex items-center gap-3">
-                          <button className="text-xs text-stone-500" onClick={() => toggleItemAvailable(item)}>
-                            {item.is_available ? "Mark unavailable" : "Mark available"}
-                          </button>
-                          <button className="text-xs text-rose-600" onClick={() => deleteItem(item.id)}>
-                            Remove
-                          </button>
+                      <div key={item.id} className="flex flex-col gap-1 text-sm border-b border-stone-100 pb-2 last:border-0">
+                        <div className="flex items-center justify-between">
+                          <span className={item.is_available ? "" : "text-stone-400 line-through"}>{item.name}</span>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <button className="text-xs text-stone-500" onClick={() => toggleItemAvailable(item)}>
+                              {item.is_available ? "Mark unavailable" : "Mark available"}
+                            </button>
+                            <button
+                              className="text-xs text-teal-600"
+                              onClick={() => (editingItemId === item.id ? setEditingItemId(null) : startEditItemDesc(item))}
+                            >
+                              {editingItemId === item.id ? "Cancel" : item.description ? "Edit" : "Add description"}
+                            </button>
+                            <button className="text-xs text-rose-600" onClick={() => deleteItem(item.id)}>
+                              Remove
+                            </button>
+                          </div>
                         </div>
+                        {editingItemId === item.id ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder="What's in this dish?"
+                              className="border border-stone-300 rounded px-2 py-1 text-xs flex-1"
+                              value={editItemDesc}
+                              onChange={(e) => setEditItemDesc(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), saveItemDescription(item.id))}
+                            />
+                            <button
+                              className="text-xs border border-stone-300 rounded px-3 py-1"
+                              onClick={() => saveItemDescription(item.id)}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        ) : (
+                          item.description && <p className="text-xs text-stone-400">{item.description}</p>
+                        )}
                       </div>
                     ))}
                     {(!cat.menu_items || cat.menu_items.length === 0) && (
                       <p className="text-xs text-stone-400">No items yet.</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Add item"
+                        className="border border-stone-300 rounded px-3 py-1.5 text-sm flex-1"
+                        value={newItemName[cat.id] || ""}
+                        onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addItem(cat.id))}
+                      />
+                      <button className="text-sm border border-stone-300 rounded px-3 py-1.5" onClick={() => addItem(cat.id)}>
+                        Add
+                      </button>
+                    </div>
                     <input
                       type="text"
-                      placeholder="Add item"
-                      className="border border-stone-300 rounded px-3 py-1.5 text-sm flex-1"
-                      value={newItemName[cat.id] || ""}
-                      onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })}
+                      placeholder="Description (optional) — what's in this dish?"
+                      className="border border-stone-300 rounded px-3 py-1 text-xs w-full"
+                      value={newItemDesc[cat.id] || ""}
+                      onChange={(e) => setNewItemDesc({ ...newItemDesc, [cat.id]: e.target.value })}
                       onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addItem(cat.id))}
                     />
-                    <button className="text-sm border border-stone-300 rounded px-3 py-1.5" onClick={() => addItem(cat.id)}>
-                      Add
-                    </button>
                   </div>
                 </div>
               ))}

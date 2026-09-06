@@ -222,7 +222,11 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
-  const partner = venue.partner_users?.[0];
+  // PostgREST returns this embed as a single object (the FK resolves to-one),
+  // not an array — tolerate both shapes.
+  const partner = Array.isArray(venue.partner_users)
+    ? venue.partner_users[0]
+    : venue.partner_users || null;
 
   const Row = ({ label, value }) => (
     <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-stone-100 text-sm">

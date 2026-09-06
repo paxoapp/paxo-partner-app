@@ -828,6 +828,21 @@ export default function App() {
     }
   }
 
+  async function togglePackagePublished(pkg) {
+    setPackageError("");
+    try {
+      await sb(`/rest/v1/venue_packages?id=eq.${pkg.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { is_published: !pkg.is_published },
+      });
+      await loadPackages(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setPackageError(e.message);
+    }
+  }
+
   async function deletePackage(id) {
     setPackageError("");
     try {
@@ -1907,13 +1922,31 @@ export default function App() {
                 <div key={p.id} className="border border-stone-200 rounded-lg p-4 bg-white">
                   <div className="flex items-start justify-between mb-2">
                     <div>
-                      <p className="font-medium">{p.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{p.name}</p>
+                        <span
+                          className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+                            p.is_published
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-stone-200 text-stone-500"
+                          }`}
+                        >
+                          {p.is_published ? "Published" : "Draft"}
+                        </span>
+                      </div>
                       <p className="text-sm text-stone-500">
                         {inr(p.price_per_head)} / head · {p.min_headcount}–{p.max_headcount || "∞"} guests
                         {p.duration_hours ? ` · ${Number(p.duration_hours) === 24 ? "Full day" : `${p.duration_hours} hrs`}` : ""}
                       </p>
                     </div>
                     <div className="flex gap-3 shrink-0">
+                      <button
+                        type="button"
+                        className={`text-xs ${p.is_published ? "text-stone-500" : "text-emerald-600 font-medium"}`}
+                        onClick={() => togglePackagePublished(p)}
+                      >
+                        {p.is_published ? "Unpublish" : "Publish"}
+                      </button>
                       <button type="button" className="text-xs text-teal-600" onClick={() => openEditPackageForm(p)}>
                         Edit
                       </button>

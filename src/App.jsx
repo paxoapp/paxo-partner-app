@@ -53,7 +53,19 @@ const REJECT_REASONS = [
 ];
 
 const FOOD_KINDS = ["starter_veg", "starter_non_veg", "main_veg", "main_non_veg", "dessert", "other"];
-const BEVERAGE_KINDS = ["beverage_alcohol", "beverage_non_alcohol"];
+const BEVERAGE_KINDS = [
+  "wine",
+  "beer",
+  "whisky",
+  "vodka",
+  "rum",
+  "gin",
+  "classic_cocktails",
+  "mocktails",
+  "soft_beverages",
+];
+
+const NON_ALCOHOLIC_QUOTA_KINDS = ["mocktails", "soft_beverages"];
 
 const FOOD_QUOTA_CATEGORIES = [
   ["starter_veg", "Veg Starters", 3],
@@ -62,6 +74,20 @@ const FOOD_QUOTA_CATEGORIES = [
   ["main_non_veg", "Non-Veg Main Course", 2],
   ["dessert", "Desserts", 1],
 ];
+
+const BEVERAGE_QUOTA_CATEGORIES = [
+  ["wine", "Wine", 1],
+  ["beer", "Beer", 1],
+  ["whisky", "Whisky", 1],
+  ["vodka", "Vodka", 1],
+  ["rum", "Rum", 1],
+  ["gin", "Gin", 1],
+  ["classic_cocktails", "Classic Cocktails", 1],
+  ["mocktails", "Mocktails", 1],
+  ["soft_beverages", "Soft Beverages", 1],
+];
+
+const QUOTA_CATEGORIES = [...FOOD_QUOTA_CATEGORIES, ...BEVERAGE_QUOTA_CATEGORIES];
 
 export default function App() {
   const [screen, setScreen] = useState("auth");
@@ -137,8 +163,15 @@ export default function App() {
     ["main_veg", "Mains (veg)"],
     ["main_non_veg", "Mains (non-veg)"],
     ["dessert", "Dessert"],
-    ["beverage_alcohol", "Beverages (alcohol)"],
-    ["beverage_non_alcohol", "Beverages (non-alcohol)"],
+    ["wine", "Wine"],
+    ["beer", "Beer"],
+    ["whisky", "Whisky"],
+    ["vodka", "Vodka"],
+    ["rum", "Rum"],
+    ["gin", "Gin"],
+    ["classic_cocktails", "Classic Cocktails"],
+    ["mocktails", "Mocktails"],
+    ["soft_beverages", "Soft Beverages"],
     ["other", "Other"],
   ];
 
@@ -655,9 +688,15 @@ export default function App() {
       min_headcount: "",
       max_headcount: "",
       inclusions: "",
-      quotas: Object.fromEntries(
-        FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
-      ),
+      includes_alcohol: true,
+      quotas: {
+        ...Object.fromEntries(
+          FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
+        ),
+        ...Object.fromEntries(
+          BEVERAGE_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: false, count: def }])
+        ),
+      },
     });
     setEditingPackageId(null);
     setPackageError("");
@@ -666,7 +705,7 @@ export default function App() {
 
   function openEditPackageForm(pkg) {
     const quotas = Object.fromEntries(
-      FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => {
+      QUOTA_CATEGORIES.map(([kind, , def]) => {
         const existing = pkg.menu_quota_rules?.find((q) => q.category_kind === kind);
         return [kind, { checked: !!existing, count: existing ? existing.quota_count : def }];
       })
@@ -679,6 +718,7 @@ export default function App() {
       min_headcount: pkg.min_headcount ?? "",
       max_headcount: pkg.max_headcount ?? "",
       inclusions: (pkg.inclusions || []).join("\n"),
+      includes_alcohol: pkg.includes_alcohol ?? true,
       quotas,
     });
     setEditingPackageId(pkg.id);
@@ -722,6 +762,7 @@ export default function App() {
           .split("\n")
           .map((s) => s.trim())
           .filter(Boolean),
+        includes_alcohol: !!packageForm.includes_alcohol,
       };
 
       let packageId = editingPackageId;
@@ -748,7 +789,17 @@ export default function App() {
         prefer: "return=minimal",
       });
 
-      const quotaRows = FOOD_QUOTA_CATEGORIES.filter(([kind]) => packageForm.quotas[kind]?.checked).map(
+      const quotaRows = QUOTA_CATEGORIES.filter(([kind]) => {
+        if (!packageForm.quotas[kind]?.checked) return false;
+        if (
+          !packageForm.includes_alcohol &&
+          BEVERAGE_KINDS.includes(kind) &&
+          !NON_ALCOHOLIC_QUOTA_KINDS.includes(kind)
+        ) {
+          return false;
+        }
+        return true;
+      }).map(
         ([kind]) => ({
           package_id: packageId,
           category_kind: kind,
@@ -1436,7 +1487,7 @@ export default function App() {
                 className={`text-sm px-4 py-2 rounded-full border ${
                   menuSection === "beverage" ? "bg-slate-900 text-white border-slate-900" : "border-stone-300 text-stone-600"
                 }`}
-                onClick={() => { setMenuSection("beverage"); setNewCategoryKind("beverage_alcohol"); }}
+                onClick={() => { setMenuSection("beverage"); setNewCategoryKind("wine"); }}
               >
                 Beverages
               </button>
@@ -1672,53 +1723,94 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium block mb-2">Food quotas</label>
-                  <div className="flex flex-col gap-3">
-                    {FOOD_QUOTA_CATEGORIES.map(([kind, label]) => {
-                      const q = packageForm.quotas[kind];
-                      return (
-                        <div key={kind} className="border border-stone-200 rounded-lg p-3">
-                          <label className="flex items-center gap-2 text-sm font-medium mb-2">
-                            <input
-                              type="checkbox"
-                              checked={q.checked}
-                              onChange={(e) =>
-                                setPackageForm({
-                                  ...packageForm,
-                                  quotas: { ...packageForm.quotas, [kind]: { ...q, checked: e.target.checked } },
-                                })
-                              }
-                            />
-                            {label}
-                          </label>
-                          {q.checked && (
-                            <div className="flex gap-2">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <button
-                                  type="button"
-                                  key={n}
-                                  className={`w-8 h-8 rounded-full border text-sm font-medium ${
-                                    q.count === n
-                                      ? "bg-teal-500 text-white border-teal-500"
-                                      : "border-stone-300 text-stone-600"
-                                  }`}
-                                  onClick={() =>
-                                    setPackageForm({
-                                      ...packageForm,
-                                      quotas: { ...packageForm.quotas, [kind]: { ...q, count: n } },
-                                    })
-                                  }
-                                >
-                                  {n}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <label className="text-sm font-medium block mb-2">Does this package include alcohol?</label>
+                  <div className="flex gap-2">
+                    {[
+                      ["Yes", true],
+                      ["No", false],
+                    ].map(([lbl, val]) => (
+                      <button
+                        type="button"
+                        key={lbl}
+                        className={`text-sm px-4 py-1.5 rounded-full border ${
+                          packageForm.includes_alcohol === val
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "border-stone-300 text-stone-600"
+                        }`}
+                        onClick={() => setPackageForm({ ...packageForm, includes_alcohol: val })}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
                   </div>
+                  {!packageForm.includes_alcohol && (
+                    <p className="text-xs text-stone-400 mt-2">
+                      Non-alcoholic package — only Mocktails and Soft Beverages are available below.
+                    </p>
+                  )}
                 </div>
+
+                {(() => {
+                  const renderQuotaRow = ([kind, label]) => {
+                    const q = packageForm.quotas[kind];
+                    if (!q) return null;
+                    return (
+                      <div key={kind} className="border border-stone-200 rounded-lg p-3">
+                        <label className="flex items-center gap-2 text-sm font-medium mb-2">
+                          <input
+                            type="checkbox"
+                            checked={q.checked}
+                            onChange={(e) =>
+                              setPackageForm({
+                                ...packageForm,
+                                quotas: { ...packageForm.quotas, [kind]: { ...q, checked: e.target.checked } },
+                              })
+                            }
+                          />
+                          {label}
+                        </label>
+                        {q.checked && (
+                          <div className="flex gap-2">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <button
+                                type="button"
+                                key={n}
+                                className={`w-8 h-8 rounded-full border text-sm font-medium ${
+                                  q.count === n
+                                    ? "bg-teal-500 text-white border-teal-500"
+                                    : "border-stone-300 text-stone-600"
+                                }`}
+                                onClick={() =>
+                                  setPackageForm({
+                                    ...packageForm,
+                                    quotas: { ...packageForm.quotas, [kind]: { ...q, count: n } },
+                                  })
+                                }
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+                  const beverageRows = packageForm.includes_alcohol
+                    ? BEVERAGE_QUOTA_CATEGORIES
+                    : BEVERAGE_QUOTA_CATEGORIES.filter(([k]) => NON_ALCOHOLIC_QUOTA_KINDS.includes(k));
+                  return (
+                    <>
+                      <div>
+                        <label className="text-sm font-medium block mb-2">Food quotas</label>
+                        <div className="flex flex-col gap-3">{FOOD_QUOTA_CATEGORIES.map(renderQuotaRow)}</div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium block mb-2">Beverage quotas</label>
+                        <div className="flex flex-col gap-3">{beverageRows.map(renderQuotaRow)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {packageError && <p className="text-rose-600 text-sm">{packageError}</p>}
                 <div className="flex gap-2">
@@ -1770,7 +1862,7 @@ export default function App() {
                         .sort((a, b) => a.category_kind.localeCompare(b.category_kind))
                         .map(
                           (q) =>
-                            `${q.quota_count} ${FOOD_QUOTA_CATEGORIES.find(([k]) => k === q.category_kind)?.[1] || q.category_kind}`
+                            `${q.quota_count} ${QUOTA_CATEGORIES.find(([k]) => k === q.category_kind)?.[1] || q.category_kind}`
                         )
                         .join(" · ")}
                     </p>

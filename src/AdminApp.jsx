@@ -47,15 +47,18 @@ function StatusBadge({ status, verified }) {
 
 function DocLink({ session, path, label }) {
   const [state, setState] = useState("idle"); // idle | loading | error
+  const [err, setErr] = useState("");
   if (!path) return <span className="text-stone-400">{label}: not provided</span>;
   async function open() {
     setState("loading");
+    setErr("");
     try {
       const url = await signedDocumentUrl(session.token, path);
       window.open(url, "_blank", "noopener");
       setState("idle");
-    } catch {
+    } catch (e) {
       setState("error");
+      setErr(e.message || "Couldn't open document");
     }
   }
   return (
@@ -63,12 +66,7 @@ function DocLink({ session, path, label }) {
       <button onClick={open} className="text-teal-700 underline text-left w-fit">
         {label}: {state === "loading" ? "opening…" : "view document"}
       </button>
-      {state === "error" && (
-        <span className="text-xs text-rose-600">
-          Couldn't open — stored at <code className="break-all">{path}</code>. Admin storage read access
-          for the partner-documents bucket may still need to be enabled.
-        </span>
-      )}
+      {state === "error" && <span className="text-xs text-rose-600">{err}</span>}
     </span>
   );
 }
@@ -291,8 +289,10 @@ export default function AdminApp() {
   const loadVenues = useCallback(async (token) => {
     setLoading(true);
     try {
+      // updated_at is trigger-maintained on every venue update, so rejected
+      // venues that a partner edits/resubmits float back to the top.
       const rows = await sb(
-        "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=submitted_at.desc.nullslast,created_at.desc",
+        "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=updated_at.desc.nullslast,created_at.desc",
         { token }
       );
       setVenues(rows);

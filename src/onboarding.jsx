@@ -98,13 +98,13 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
         guest_capacity: f.guest_capacity === "" ? null : parseInt(f.guest_capacity, 10),
         serves_alcohol: !!f.serves_alcohol,
         description: f.description.trim() || null,
-        submitted_at: new Date().toISOString(),
       };
 
       if (isResubmit) {
         // Partner may freely edit these fields; status/is_verified/rejection_note
-        // are trigger-locked so we leave them. Bumping submitted_at is the
-        // "edited after rejection" affordance for the admin queue.
+        // are trigger-locked so we leave them. venues.updated_at is bumped by a
+        // DB trigger on any update, which is what resurfaces the venue in the
+        // admin queue after an edit.
         await sb(`/rest/v1/venues?id=eq.${initial.id}`, {
           method: "PATCH",
           token: session.token,
@@ -116,7 +116,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
           method: "POST",
           token: session.token,
           prefer: "return=representation",
-          body: { ...payload, status: "submitted" },
+          body: { ...payload, status: "submitted", submitted_at: new Date().toISOString() },
         });
         await sb("/rest/v1/partner_users", {
           method: "POST",

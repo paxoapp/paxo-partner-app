@@ -83,6 +83,7 @@ const QUOTA_LABEL_FORMS = {
   classic_cocktails: ["Classic Cocktail", "Classic Cocktails"],
   mocktails: ["Mocktail", "Mocktails"],
   soft_beverages: ["Soft Beverage", "Soft Beverages"],
+  other: ["Other", "Other"],
 };
 
 function quotaLabel(kind, count) {

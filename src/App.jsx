@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 import { sb, SUPABASE_URL } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
+import OtpVerification from "./OtpVerification";
 
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
@@ -374,29 +375,49 @@ export default function App() {
     }
   }, [screen, session, partnerVenue, loadPackages]);
 
+  // Establish the app's auth state from a real session, then route. Nothing that
+  // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
+  // run, so auth.uid() is always populated by the time those requests fire.
+  const enterSession = useCallback(
+    async (token, user) => {
+      const venueRow = await loadPartnerVenue(token, user.id);
+      setSession({ token, userId: user.id, email: user.email });
+      setScreen(venueRow ? "dashboard" : "submitVenue");
+    },
+    [loadPartnerVenue]
+  );
+
   async function handleAuth(e) {
     e.preventDefault();
     setAuthError("");
     setAuthLoading(true);
     try {
       if (authMode === "signup") {
-        await sb("/auth/v1/signup", {
+        // Inspect the signup result explicitly — never assume a session exists
+        // just because it didn't error.
+        const res = await sb("/auth/v1/signup", {
           method: "POST",
           body: { email: authEmail, password: authPassword },
         });
+        if (res.access_token) {
+          // "Confirm email" is OFF: the account is already active. Straight to
+          // the Stage 1 venue form — no OTP screen while the project is in this
+          // mode (keeps local testing frictionless).
+          await enterSession(res.access_token, res.user);
+        } else {
+          // "Confirm email" is ON: user must verify a 6-digit code first. No
+          // session, no navigation to the venue form, no DB writes yet.
+          setScreen("otp");
+        }
+        return;
       }
+
+      // Returning-user login — unchanged.
       const data = await sb("/auth/v1/token?grant_type=password", {
         method: "POST",
         body: { email: authEmail, password: authPassword },
       });
-      const token = data.access_token;
-      const userId = data.user.id;
-
-      // New partners submit their venue after account creation (Stage 1 form).
-      // The venue + partner_users link is created there, not here.
-      const venueRow = await loadPartnerVenue(token, userId);
-      setSession({ token, userId, email: data.user.email });
-      setScreen(venueRow ? "dashboard" : "submitVenue");
+      await enterSession(data.access_token, data.user);
     } catch (e) {
       setAuthError(e.message);
     } finally {
@@ -913,6 +934,19 @@ export default function App() {
           </p>
         </div>
       </div>
+    );
+  }
+
+  if (screen === "otp") {
+    return (
+      <OtpVerification
+        email={authEmail}
+        onVerified={enterSession}
+        onBack={() => {
+          setAuthError("");
+          setScreen("auth");
+        }}
+      />
     );
   }
 

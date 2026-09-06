@@ -1,30 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
-
-const SUPABASE_URL = "https://cjjksssylejwxwbalury.supabase.co";
-const ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqamtzc3N5bGVqd3h3YmFsdXJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0OTQ4MzEsImV4cCI6MjEwNDA3MDgzMX0.H2PkT7nkoXFDc2vBOM2lRNlih0xDUZyk9Sft1MqRzTI";
-
-async function sb(path, { method = "GET", body, token, prefer } = {}) {
-  const headers = {
-    apikey: ANON_KEY,
-    Authorization: `Bearer ${token || ANON_KEY}`,
-    "Content-Type": "application/json",
-  };
-  if (prefer) headers["Prefer"] = prefer;
-  const res = await fetch(`${SUPABASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!res.ok) {
-    const message = data?.message || data?.msg || data?.error_description || "Something went wrong";
-    throw new Error(message);
-  }
-  return data;
-}
+import { sb, SUPABASE_URL } from "./supabase";
+import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
 
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
@@ -330,9 +307,15 @@ export default function App() {
       `/rest/v1/partner_users?id=eq.${userId}&select=*,venues(*)`,
       { token }
     );
-    setPartnerVenue(row);
-    return row;
+    setPartnerVenue(row || null);
+    return row || null;
   }, []);
+
+  const refreshVenue = useCallback(async () => {
+    if (session?.token && session?.userId) {
+      return loadPartnerVenue(session.token, session.userId);
+    }
+  }, [session, loadPartnerVenue]);
 
   const loadBookings = useCallback(async (token, venueId) => {
     setBookingsLoading(true);
@@ -394,10 +377,6 @@ export default function App() {
   async function handleAuth(e) {
     e.preventDefault();
     setAuthError("");
-    if (authMode === "signup" && !claimVenueId) {
-      setAuthError("Select the venue you manage.");
-      return;
-    }
     setAuthLoading(true);
     try {
       if (authMode === "signup") {
@@ -413,27 +392,11 @@ export default function App() {
       const token = data.access_token;
       const userId = data.user.id;
 
-      if (authMode === "signup") {
-        await sb("/rest/v1/partner_users", {
-          method: "POST",
-          token,
-          prefer: "return=minimal",
-          body: {
-            id: userId,
-            venue_id: claimVenueId,
-            full_name: authFullName,
-            phone: authPhone,
-          },
-        });
-      }
-
+      // New partners submit their venue after account creation (Stage 1 form).
+      // The venue + partner_users link is created there, not here.
       const venueRow = await loadPartnerVenue(token, userId);
       setSession({ token, userId, email: data.user.email });
-      if (!venueRow) {
-        setAuthError("No venue linked to this account yet.");
-        return;
-      }
-      setScreen("dashboard");
+      setScreen(venueRow ? "dashboard" : "submitVenue");
     } catch (e) {
       setAuthError(e.message);
     } finally {
@@ -470,14 +433,7 @@ export default function App() {
         setSession({ token, userId: user.id, email: user.email });
         const venueRow = await loadPartnerVenue(token, user.id);
         window.history.replaceState(null, "", window.location.pathname);
-        if (venueRow) {
-          setScreen("dashboard");
-        } else {
-          sb("/rest/v1/venues?select=id,name,city&status=eq.approved&order=name.asc")
-            .then(setApprovedVenues)
-            .catch(() => {});
-          setScreen("claimVenue");
-        }
+        setScreen(venueRow ? "dashboard" : "submitVenue");
       } catch (e) {
         setAuthError(e.message);
       }
@@ -573,7 +529,7 @@ export default function App() {
       });
       setSession({ token: verifyData.access_token, userId: verifyData.user.id, email: verifyData.user.email });
       const venueRow = await loadPartnerVenue(verifyData.access_token, verifyData.user.id);
-      setScreen(venueRow ? "dashboard" : "claimVenue");
+      setScreen(venueRow ? "dashboard" : "submitVenue");
     } catch (e) {
       setResetError(e.message);
     } finally {
@@ -601,7 +557,7 @@ export default function App() {
       });
       setSession({ token: recoveryToken, userId: user.id, email: user.email });
       const venueRow = await loadPartnerVenue(recoveryToken, user.id);
-      setScreen(venueRow ? "dashboard" : "claimVenue");
+      setScreen(venueRow ? "dashboard" : "submitVenue");
     } catch (e) {
       setNewPasswordError(e.message);
     } finally {
@@ -900,38 +856,9 @@ export default function App() {
 
           <form onSubmit={handleAuth} className="flex flex-col gap-3">
             {authMode === "signup" && (
-              <>
-                <input
-                  type="text"
-                  required
-                  placeholder="Your full name"
-                  className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
-                  value={authFullName}
-                  onChange={(e) => setAuthFullName(e.target.value)}
-                />
-                <input
-                  type="tel"
-                  placeholder="Phone number"
-                  className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
-                  value={authPhone}
-                  onChange={(e) => setAuthPhone(e.target.value)}
-                />
-                <select
-                  required
-                  className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm text-white focus:outline-none focus:border-teal-600"
-                  value={claimVenueId}
-                  onChange={(e) => setClaimVenueId(e.target.value)}
-                >
-                  <option value="">Which venue do you manage?</option>
-                  {approvedVenues.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name} — {v.city}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-stone-500 px-1">
-                  Temporary: for now you pick your venue directly. Once the Admin console exists, this
-                  will require an approved invite instead.
-                </p>
-              </>
+              <p className="text-xs text-stone-500 px-1">
+                Create your login, then submit your venue details for review.
+              </p>
             )}
             <input
               type="email"
@@ -1170,6 +1097,46 @@ export default function App() {
           </form>
         </div>
       </div>
+    );
+  }
+
+  // --- Venue onboarding + status gating -----------------------------------
+  // A logged-in partner without an approved venue never sees the dashboard.
+  const venue = partnerVenue?.venues || null;
+
+  if (session && (screen === "submitVenue" || !partnerVenue)) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white px-6 py-10">
+        <div className="max-w-md mx-auto w-full">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-baseline gap-2">
+              <span className="font-black text-2xl">Paxo</span>
+              <span className="text-xs text-teal-400 uppercase tracking-wide">partner</span>
+            </div>
+            <button onClick={logOut} className="text-xs text-stone-400 hover:text-stone-200">Log out</button>
+          </div>
+          <div className="border border-stone-800 bg-stone-900/60 rounded-2xl p-5">
+            <VenueSubmissionForm
+              session={session}
+              onSubmitted={async () => {
+                await refreshVenue();
+                setScreen("dashboard");
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (session && venue && venue.status !== "approved") {
+    return (
+      <VenueStatusScreen
+        session={session}
+        venue={venue}
+        onChanged={refreshVenue}
+        onLogout={logOut}
+      />
     );
   }
 

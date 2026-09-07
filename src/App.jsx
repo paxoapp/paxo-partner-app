@@ -98,6 +98,32 @@ function quotaLabel(kind, count) {
   return count === 1 ? forms[0] : forms[1];
 }
 
+// A booking's finalized menu selections, grouped by category kind, using this
+// venue's own menu_categories/menu_items (loaded into `categories`).
+function bookingSelectionGroups(booking, categories) {
+  const sel = Array.isArray(booking?.booking_menu_selections)
+    ? booking.booking_menu_selections
+    : booking?.booking_menu_selections
+    ? [booking.booking_menu_selections]
+    : [];
+  const itemById = {};
+  const kindByItemId = {};
+  (categories || []).forEach((c) =>
+    (c.menu_items || []).forEach((it) => {
+      itemById[it.id] = it;
+      kindByItemId[it.id] = c.kind;
+    })
+  );
+  const groups = {};
+  sel.forEach((s) => {
+    const kind = kindByItemId[s.menu_item_id] || "other";
+    (groups[kind] ||= []).push(itemById[s.menu_item_id]?.name || "Item");
+  });
+  return Object.entries(groups)
+    .map(([kind, names]) => ({ kind, names: names.slice().sort() }))
+    .sort((a, b) => a.kind.localeCompare(b.kind));
+}
+
 export default function App() {
   const [screen, setScreen] = useState("auth");
   const [session, setSession] = useState(null);
@@ -422,7 +448,10 @@ export default function App() {
         sb(`/rest/v1/venue_packages?venue_id=eq.${venueId}&select=id,name,price_per_head`, { token }),
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
-        sb(`/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at`, { token }),
+        sb(
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,booking_menu_selections(menu_item_id)`,
+          { token }
+        ),
       ]);
       const pkgById = Object.fromEntries(pkgs.map((p) => [p.id, p]));
       const typeById = Object.fromEntries(types.map((t) => [t.id, t]));
@@ -470,8 +499,10 @@ export default function App() {
       partnerVenue?.venue_id
     ) {
       loadBookings(session.token, partnerVenue.venue_id);
+      // Upcoming shows each finalized booking's menu, grouped by category.
+      if (screen === "upcoming") loadMenu(session.token, partnerVenue.venue_id);
     }
-  }, [screen, session, partnerVenue, loadBookings]);
+  }, [screen, session, partnerVenue, loadBookings, loadMenu]);
 
   useEffect(() => {
     if (screen === "packages" && session && partnerVenue?.venue_id) {
@@ -1701,6 +1732,32 @@ export default function App() {
                                 <p className="text-xs text-rose-600 mt-1">{checkinError[b.id]}</p>
                               )}
                             </>
+                          )}
+                        </div>
+                      )}
+
+                      {confirmed && (
+                        <div className="border border-stone-200 rounded-lg p-3 mb-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1">
+                            Finalized menu
+                          </p>
+                          {b.menu_finalized_at ? (
+                            <div className="flex flex-col gap-1.5">
+                              {bookingSelectionGroups(b, categories).map((g) => (
+                                <div key={g.kind}>
+                                  <p className="text-sm font-medium text-stone-700">
+                                    {quotaLabel(g.kind, g.names.length)}
+                                  </p>
+                                  <ul className="list-disc pl-5 text-sm text-stone-600">
+                                    {g.names.map((n, i) => (
+                                      <li key={i}>{n}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-stone-500">Menu not yet finalized.</p>
                           )}
                         </div>
                       )}

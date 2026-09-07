@@ -174,6 +174,10 @@ export default function App() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ full_name: "", phone: "" });
+  const [venueTerms, setVenueTerms] = useState("");
+  const [venueTermsSaved, setVenueTermsSaved] = useState(false);
+  const [venueTermsError, setVenueTermsError] = useState("");
+  const [venueTermsSaving, setVenueTermsSaving] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -494,6 +498,7 @@ export default function App() {
   useEffect(() => {
     if (partnerVenue) {
       setProfileForm({ full_name: partnerVenue.full_name || "", phone: partnerVenue.phone || "" });
+      setVenueTerms(partnerVenue.venues?.terms_and_conditions || "");
     }
   }, [partnerVenue]);
 
@@ -745,6 +750,27 @@ export default function App() {
       setProfileError(e.message);
     } finally {
       setProfileLoading(false);
+    }
+  }
+
+  async function saveVenueTerms(e) {
+    e.preventDefault();
+    setVenueTermsError("");
+    setVenueTermsSaved(false);
+    setVenueTermsSaving(true);
+    try {
+      await sb(`/rest/v1/venues?id=eq.${partnerVenue.venue_id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { terms_and_conditions: venueTerms.trim() || null },
+      });
+      await refreshVenue();
+      setVenueTermsSaved(true);
+    } catch (e) {
+      setVenueTermsError(e.message);
+    } finally {
+      setVenueTermsSaving(false);
     }
   }
 
@@ -2433,6 +2459,36 @@ export default function App() {
                 className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {profileLoading ? "Saving…" : "Save changes"}
+              </button>
+            </form>
+
+            <form
+              onSubmit={saveVenueTerms}
+              className="flex flex-col gap-3 bg-white border border-stone-200 rounded-lg p-5 mt-6"
+            >
+              <div>
+                <h2 className="text-sm font-medium mb-1">Terms &amp; Conditions</h2>
+                <p className="text-stone-500 text-xs">
+                  Shown to customers on the Review Menu, before they book any package at{" "}
+                  {partnerVenue?.venues?.name || "your venue"}. Plain text — one rule per line.
+                </p>
+              </div>
+              <textarea
+                rows={9}
+                className="border border-stone-300 rounded px-3 py-2 text-sm w-full leading-relaxed"
+                value={venueTerms}
+                onChange={(e) => setVenueTerms(e.target.value)}
+                placeholder={"Only adults above 21 are served alcohol.\nPackages require a minimum of 20 people."}
+              />
+              {venueTermsError && <p className="text-rose-600 text-sm">{venueTermsError}</p>}
+              {venueTermsSaved && (
+                <p className="text-emerald-600 text-sm">Terms &amp; conditions saved.</p>
+              )}
+              <button
+                disabled={venueTermsSaving}
+                className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+              >
+                {venueTermsSaving ? "Saving…" : "Save terms"}
               </button>
             </form>
           </div>

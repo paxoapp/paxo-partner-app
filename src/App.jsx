@@ -2302,11 +2302,18 @@ export default function App() {
                                     <div className="flex flex-col gap-1">
                                       {kindItems.map((it) => {
                                         const on = packageForm.poolItemIds.includes(it.id);
+                                        const disabled = !it.is_available;
                                         return (
-                                          <label key={it.id} className="flex items-center gap-2 text-sm">
+                                          <label
+                                            key={it.id}
+                                            className={`flex items-center gap-2 text-sm ${
+                                              disabled ? "cursor-not-allowed" : ""
+                                            }`}
+                                          >
                                             <input
                                               type="checkbox"
                                               checked={on}
+                                              disabled={disabled}
                                               onChange={() =>
                                                 setPackageForm((f) => ({
                                                   ...f,
@@ -2316,9 +2323,9 @@ export default function App() {
                                                 }))
                                               }
                                             />
-                                            <span className={it.is_available ? "" : "text-stone-400"}>
+                                            <span className={disabled ? "text-stone-400" : ""}>
                                               {it.name}
-                                              {!it.is_available && " (unavailable)"}
+                                              {disabled && " (unavailable)"}
                                             </span>
                                           </label>
                                         );

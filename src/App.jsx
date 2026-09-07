@@ -861,6 +861,7 @@ export default function App() {
       max_headcount: "",
       inclusions: "",
       includes_alcohol: true,
+      gst_mode: "included",
       quotas: {
         ...Object.fromEntries(
           FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
@@ -892,6 +893,7 @@ export default function App() {
       max_headcount: pkg.max_headcount ?? "",
       inclusions: (pkg.inclusions || []).join("\n"),
       includes_alcohol: pkg.includes_alcohol ?? true,
+      gst_mode: pkg.gst_mode === "excluded" ? "excluded" : "included",
       quotas,
       poolItemIds: (pkg.package_item_pool || []).map((r) => r.menu_item_id),
     });
@@ -960,6 +962,7 @@ export default function App() {
           .map((s) => s.trim())
           .filter(Boolean),
         includes_alcohol: !!packageForm.includes_alcohol,
+        gst_mode: packageForm.gst_mode === "excluded" ? "excluded" : "included",
       };
 
       let packageId = editingPackageId;
@@ -2102,6 +2105,53 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-1">GST</label>
+                  <div className="flex gap-2">
+                    {[
+                      ["included", "Included in price"],
+                      ["excluded", "Excluded from price"],
+                    ].map(([val, lbl]) => (
+                      <button
+                        type="button"
+                        key={val}
+                        className={`text-sm px-3 py-1.5 rounded border ${
+                          packageForm.gst_mode === val
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "border-stone-300 text-stone-600"
+                        }`}
+                        onClick={() => setPackageForm({ ...packageForm, gst_mode: val })}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const price = parseFloat(packageForm.price_per_head);
+                    if (!price || price <= 0) return null;
+                    const rate = packageForm.includes_alcohol ? 0.18 : 0.05;
+                    const pct = Math.round(rate * 100);
+                    if (packageForm.gst_mode === "excluded") {
+                      return (
+                        <p className="text-xs text-stone-500 mt-1.5">
+                          Customers see ₹{price.toLocaleString("en-IN")}/head + GST as applicable.
+                          The amount they pay is unchanged.
+                        </p>
+                      );
+                    }
+                    const base = Math.round((price / (1 + rate)) * 100) / 100;
+                    const gst = Math.round((price - base) * 100) / 100;
+                    return (
+                      <p className="text-xs text-stone-500 mt-1.5">
+                        Customers see ₹{base.toLocaleString("en-IN")} base + ₹
+                        {gst.toLocaleString("en-IN")} GST ({pct}%) = ₹
+                        {price.toLocaleString("en-IN")}/head.
+                      </p>
+                    );
+                  })()}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-sm font-medium block mb-1">Minimum guests</label>

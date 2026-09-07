@@ -30,8 +30,9 @@ const REJECT_REASONS = [
   "Other",
 ];
 
-const FOOD_KINDS = ["starter_veg", "starter_non_veg", "main_veg", "main_non_veg", "dessert", "other"];
+const FOOD_KINDS = ["starter_veg", "starter_non_veg", "main_veg", "main_non_veg", "side", "dessert", "other"];
 const BEVERAGE_KINDS = [
+  "single_malt",
   "wine",
   "beer",
   "whisky",
@@ -50,10 +51,12 @@ const FOOD_QUOTA_CATEGORIES = [
   ["starter_non_veg", "Non-Veg Starters", 3],
   ["main_veg", "Veg Main Course", 2],
   ["main_non_veg", "Non-Veg Main Course", 2],
+  ["side", "Sides", 1],
   ["dessert", "Desserts", 1],
 ];
 
 const BEVERAGE_QUOTA_CATEGORIES = [
+  ["single_malt", "Single Malts", 1],
   ["wine", "Wine", 1],
   ["beer", "Beer", 1],
   ["whisky", "Whisky", 1],
@@ -71,7 +74,7 @@ const QUOTA_CATEGORIES = [...FOOD_QUOTA_CATEGORIES, ...BEVERAGE_QUOTA_CATEGORIES
 // the partner picks which specific menu_items (brands) back the quota, written
 // to package_item_pool. classic_cocktails / mocktails / soft_beverages are NOT
 // here — they stay free-flow, described via the Inclusions text field.
-const POOL_QUOTA_KINDS = ["wine", "beer", "whisky", "vodka", "rum", "gin"];
+const POOL_QUOTA_KINDS = ["single_malt", "wine", "beer", "whisky", "vodka", "rum", "gin"];
 
 // [singular, plural] per quota category kind, for "1 Dessert" vs "2 Desserts".
 const QUOTA_LABEL_FORMS = {

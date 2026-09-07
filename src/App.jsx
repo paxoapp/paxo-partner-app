@@ -89,6 +89,8 @@ const QUOTA_LABEL_FORMS = {
   classic_cocktails: ["Classic Cocktail", "Classic Cocktails"],
   mocktails: ["Mocktail", "Mocktails"],
   soft_beverages: ["Soft Beverage", "Soft Beverages"],
+  single_malt: ["Single Malt", "Single Malts"],
+  side: ["Side", "Sides"],
   other: ["Other", "Other"],
 };
 

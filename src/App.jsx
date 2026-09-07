@@ -449,7 +449,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,booking_menu_selections(menu_item_id)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,booking_menu_selections(menu_item_id)`,
           { token }
         ),
       ]);
@@ -1480,7 +1480,7 @@ export default function App() {
         </div>
 
         <div className="flex gap-2 mb-5">
-          {["pending", "accepted", "rejected", "all"].map((t) => (
+          {["pending", "accepted", "rejected", "cancelled", "all"].map((t) => (
             <button
               key={t}
               className={`text-sm px-3 py-1.5 rounded-full border capitalize ${
@@ -1639,6 +1639,18 @@ export default function App() {
 
                 {b.status === "rejected" && b.rejection_reason && (
                   <p className="text-xs text-stone-400">Reason: {b.rejection_reason}</p>
+                )}
+
+                {b.status === "cancelled" && (
+                  <div className="border border-rose-200 bg-rose-50 rounded-lg p-3 text-xs">
+                    <p className="font-semibold text-rose-700">Cancelled by customer</p>
+                    {b.cancellation_reason && (
+                      <p className="text-stone-600 mt-0.5 whitespace-pre-wrap">
+                        {b.cancellation_reason}
+                      </p>
+                    )}
+                    <p className="text-stone-400 mt-1">No action needed.</p>
+                  </div>
                 )}
               </div>
             );

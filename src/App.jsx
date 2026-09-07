@@ -344,6 +344,26 @@ export default function App() {
     }
   }
 
+  // confirmed -> completed. The DB rejects this before the event has passed
+  // ("Cannot mark an event completed before it has happened."); surface that.
+  async function markCompleted(id) {
+    setActionError("");
+    setActionLoading(id);
+    try {
+      await sb(`/rest/v1/bookings?id=eq.${id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { status: "completed" },
+      });
+      await loadBookings(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setActionError(e.message);
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   // Partner enters the code the customer shows on arrival. Matched client-side;
   // on success the base table's event_started_at is stamped (partners are a
   // trusted caller for that column).
@@ -1688,7 +1708,21 @@ export default function App() {
                       <p className="text-xs text-stone-500 mb-3">
                         Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
                       </p>
-                      {!confirmed && eventPassed ? (
+                      {confirmed ? (
+                        eventPassed ? (
+                          <button
+                            disabled={actionLoading === b.id}
+                            className="bg-emerald-600 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                            onClick={() => markCompleted(b.id)}
+                          >
+                            {actionLoading === b.id ? "Working…" : "Mark as Completed"}
+                          </button>
+                        ) : (
+                          <p className="text-xs text-stone-400">
+                            You'll be able to mark this event completed once it has taken place.
+                          </p>
+                        )
+                      ) : eventPassed ? (
                         <button
                           disabled={actionLoading === b.id}
                           className="border border-rose-300 text-rose-700 text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
@@ -1696,9 +1730,9 @@ export default function App() {
                         >
                           Mark no-show
                         </button>
-                      ) : !confirmed ? (
+                      ) : (
                         <p className="text-xs text-stone-400">No-show marking unlocks after the event time passes.</p>
-                      ) : null}
+                      )}
                     </div>
                   );
                 })}

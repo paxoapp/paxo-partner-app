@@ -120,6 +120,9 @@ export default function App() {
   const [rejectReasonOther, setRejectReasonOther] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [actionError, setActionError] = useState("");
+  const [checkinInput, setCheckinInput] = useState({}); // keyed by booking id
+  const [checkinError, setCheckinError] = useState({}); // keyed by booking id
+  const [checkinBusyId, setCheckinBusyId] = useState(null);
 
   const [claimVenuePending, setClaimVenuePending] = useState(""); // used on the post-Google "claim venue" screen
 
@@ -341,6 +344,33 @@ export default function App() {
     }
   }
 
+  // Partner enters the code the customer shows on arrival. Matched client-side;
+  // on success the base table's event_started_at is stamped (partners are a
+  // trusted caller for that column).
+  async function confirmEventStarted(booking) {
+    const entered = (checkinInput[booking.id] || "").trim();
+    setCheckinError((m) => ({ ...m, [booking.id]: "" }));
+    if (!entered || entered !== String(booking.checkin_otp || "")) {
+      setCheckinError((m) => ({ ...m, [booking.id]: "Incorrect code, please try again." }));
+      return;
+    }
+    setCheckinBusyId(booking.id);
+    try {
+      await sb(`/rest/v1/bookings?id=eq.${booking.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { event_started_at: new Date().toISOString() },
+      });
+      setCheckinInput((m) => ({ ...m, [booking.id]: "" }));
+      await loadBookings(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setCheckinError((m) => ({ ...m, [booking.id]: e.message || "Couldn't confirm. Please try again." }));
+    } finally {
+      setCheckinBusyId(null);
+    }
+  }
+
   useEffect(() => {
     if (screen === "auth" && authMode === "signup") {
       sb("/rest/v1/venues?select=id,name,city&status=eq.approved&order=name.asc")
@@ -367,16 +397,20 @@ export default function App() {
   const loadBookings = useCallback(async (token, venueId) => {
     setBookingsLoading(true);
     try {
-      const [data, pkgs, types] = await Promise.all([
+      const [data, pkgs, types, extra] = await Promise.all([
         sb(`/rest/v1/partner_bookings_view?venue_id=eq.${venueId}&order=requested_at.desc`, { token }),
         sb(`/rest/v1/venue_packages?venue_id=eq.${venueId}&select=id,name,price_per_head`, { token }),
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
+        // The partner view doesn't carry these; the base table does (RLS allows it).
+        sb(`/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at`, { token }),
       ]);
       const pkgById = Object.fromEntries(pkgs.map((p) => [p.id, p]));
       const typeById = Object.fromEntries(types.map((t) => [t.id, t]));
+      const extraById = Object.fromEntries((extra || []).map((r) => [r.id, r]));
       setBookings(
         data.map((b) => ({
           ...b,
+          ...(extraById[b.id] || {}),
           venue_packages: pkgById[b.package_id] || null,
           booking_types: typeById[b.booking_type_id] || null,
         }))
@@ -410,7 +444,11 @@ export default function App() {
   }, [partnerVenue]);
 
   useEffect(() => {
-    if ((screen === "dashboard" || screen === "payments") && session && partnerVenue?.venue_id) {
+    if (
+      ["dashboard", "payments", "upcoming"].includes(screen) &&
+      session &&
+      partnerVenue?.venue_id
+    ) {
       loadBookings(session.token, partnerVenue.venue_id);
     }
   }, [screen, session, partnerVenue, loadBookings]);
@@ -1561,17 +1599,18 @@ export default function App() {
         {screen === "upcoming" && (
           <div>
             <h1 className="font-serif text-3xl mb-1">Upcoming events</h1>
-            <p className="text-stone-500 text-sm mb-6">Accepted bookings for {partnerVenue?.venues?.name}.</p>
+            <p className="text-stone-500 text-sm mb-6">Accepted and confirmed bookings for {partnerVenue?.venues?.name}.</p>
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
             <div className="flex flex-col gap-3">
-              {bookings.filter((b) => b.status === "accepted").length === 0 && (
-                <p className="text-stone-400 text-sm">No accepted bookings yet.</p>
+              {bookings.filter((b) => ["accepted", "confirmed"].includes(b.status)).length === 0 && (
+                <p className="text-stone-400 text-sm">No upcoming bookings yet.</p>
               )}
               {bookings
-                .filter((b) => b.status === "accepted")
+                .filter((b) => ["accepted", "confirmed"].includes(b.status))
                 .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
                 .map((b) => {
                   const eventPassed = new Date(`${b.event_date}T${b.event_time}`).getTime() < Date.now();
+                  const confirmed = b.status === "confirmed";
                   return (
                     <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white">
                       <div className="flex items-start justify-between mb-2">
@@ -1580,14 +1619,76 @@ export default function App() {
                           <p className="text-sm text-stone-500">
                             {b.venue_packages?.name} · {b.event_date} at {b.event_time} · {b.headcount} guests
                           </p>
-                          <p className="text-xs text-stone-400 font-mono mt-1">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
+                          <p className="text-xs text-stone-400 font-mono mt-1">
+                            {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
+                          </p>
                         </div>
-                        <span className="text-xs font-medium px-2 py-1 rounded bg-blue-100 text-blue-800">accepted</span>
+                        <span
+                          className={`text-xs font-medium px-2 py-1 rounded ${
+                            confirmed ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {b.status}
+                        </span>
                       </div>
+
+                      {confirmed && (
+                        <div className="border border-stone-200 rounded-lg p-3 mb-3 bg-stone-50">
+                          {b.event_started_at ? (
+                            <p className="text-sm font-medium text-emerald-700">
+                              ✓ Checked in at{" "}
+                              {new Date(b.event_started_at).toLocaleString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          ) : !b.checkin_otp ? (
+                            <p className="text-xs text-stone-500">
+                              Waiting for the customer to generate their check-in code.
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium mb-1">Confirm event started</p>
+                              <p className="text-xs text-stone-500 mb-2">
+                                Enter the 6-digit code the customer shows you on arrival.
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                <input
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  placeholder="6-digit code"
+                                  value={checkinInput[b.id] || ""}
+                                  onChange={(e) =>
+                                    setCheckinInput((m) => ({
+                                      ...m,
+                                      [b.id]: e.target.value.replace(/\D/g, "").slice(0, 6),
+                                    }))
+                                  }
+                                  className="border border-stone-300 rounded px-3 py-1.5 text-sm w-32 tracking-widest"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={checkinBusyId === b.id}
+                                  onClick={() => confirmEventStarted(b)}
+                                  className="bg-teal-500 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                                >
+                                  {checkinBusyId === b.id ? "Confirming…" : "Confirm Event Started"}
+                                </button>
+                              </div>
+                              {checkinError[b.id] && (
+                                <p className="text-xs text-rose-600 mt-1">{checkinError[b.id]}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+
                       <p className="text-xs text-stone-500 mb-3">
                         Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
                       </p>
-                      {eventPassed ? (
+                      {!confirmed && eventPassed ? (
                         <button
                           disabled={actionLoading === b.id}
                           className="border border-rose-300 text-rose-700 text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
@@ -1595,9 +1696,9 @@ export default function App() {
                         >
                           Mark no-show
                         </button>
-                      ) : (
+                      ) : !confirmed ? (
                         <p className="text-xs text-stone-400">No-show marking unlocks after the event time passes.</p>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}

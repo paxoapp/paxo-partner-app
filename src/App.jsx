@@ -23,6 +23,20 @@ const statusColor = {
   no_show: "bg-rose-100 text-rose-800",
 };
 
+// A pending request "conflicts" when the venue already has a committed
+// (accepted / confirmed) booking on the same calendar date. Same-date is the
+// trigger by design — we don't check time-range overlap, and we don't block
+// the partner, just make sure they're never surprised. `all` is the venue's
+// full booking list (every status), so no venue filter is needed here.
+function dateConflicts(booking, all) {
+  return all.filter(
+    (o) =>
+      o.id !== booking.id &&
+      o.event_date === booking.event_date &&
+      (o.status === "accepted" || o.status === "confirmed")
+  );
+}
+
 const REJECT_REASONS = [
   "Date not available",
   "Guest count exceeds capacity",
@@ -151,6 +165,9 @@ export default function App() {
   const [rejectReasonOther, setRejectReasonOther] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [actionError, setActionError] = useState("");
+  // Accept-with-conflict flow: { id, conflicts: [...] } while the dialog is open.
+  const [acceptDialog, setAcceptDialog] = useState(null);
+  const [disclosureNote, setDisclosureNote] = useState("");
   const [checkinInput, setCheckinInput] = useState({}); // keyed by booking id
   const [checkinError, setCheckinError] = useState({}); // keyed by booking id
   const [checkinBusyId, setCheckinBusyId] = useState(null);
@@ -803,16 +820,23 @@ export default function App() {
     }
   }
 
-  async function acceptBooking(id) {
+  async function acceptBooking(id, note) {
+    // When a date conflict was flagged, the partner must disclose something to
+    // the customer before the accept goes through — no empty / whitespace note.
+    const trimmedNote = (note || "").trim();
     setActionError("");
     setActionLoading(id);
     try {
+      const body = { status: "accepted" };
+      if (trimmedNote) body.partner_disclosure_note = trimmedNote;
       await sb(`/rest/v1/bookings?id=eq.${id}`, {
         method: "PATCH",
         token: session.token,
         prefer: "return=minimal",
-        body: { status: "accepted" },
+        body,
       });
+      setAcceptDialog(null);
+      setDisclosureNote("");
       await loadBookings(session.token, partnerVenue.venue_id);
     } catch (e) {
       setActionError(e.message);
@@ -1561,6 +1585,13 @@ export default function App() {
                   </span>
                 </div>
 
+                {b.status === "pending" && dateConflicts(b, bookings).length > 0 && (
+                  <div className="flex items-start gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 mb-2">
+                    <span aria-hidden>⚠</span>
+                    <span>Date conflict — already an accepted booking on {b.event_date}</span>
+                  </div>
+                )}
+
                 <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 mb-3 text-xs text-stone-600 flex flex-col gap-1.5">
                   <div className="flex justify-between gap-3">
                     <span className="text-stone-400">Occasion</span>
@@ -1655,7 +1686,16 @@ export default function App() {
                         <button
                           disabled={actionLoading === b.id}
                           className="bg-emerald-600 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
-                          onClick={() => acceptBooking(b.id)}
+                          onClick={() => {
+                            const conflicts = dateConflicts(b, bookings);
+                            if (conflicts.length > 0) {
+                              setActionError("");
+                              setDisclosureNote("");
+                              setAcceptDialog({ id: b.id, conflicts });
+                            } else {
+                              acceptBooking(b.id);
+                            }
+                          }}
                         >
                           Accept
                         </button>
@@ -1690,6 +1730,72 @@ export default function App() {
             );
           })}
         </div>
+
+        {acceptDialog && (() => {
+          const noteReady = disclosureNote.trim().length >= 10;
+          const busy = actionLoading === acceptDialog.id;
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirm accept with date conflict"
+              onClick={() => !busy && setAcceptDialog(null)}
+            >
+              <div
+                className="bg-white rounded-xl max-w-md w-full p-5 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 className="font-serif text-xl mb-2">This date already has a booking</h2>
+                <p className="text-sm text-stone-600 mb-3">
+                  {partnerVenue?.venues?.name} already has{" "}
+                  {acceptDialog.conflicts.length === 1 ? "an accepted booking" : "accepted bookings"} on this date:
+                </p>
+                <ul className="text-sm bg-amber-50 border border-amber-300 rounded-md px-3 py-2 mb-4 flex flex-col gap-1">
+                  {acceptDialog.conflicts.map((c) => (
+                    <li key={c.id} className="text-amber-900">
+                      <span className="font-mono font-medium">{c.booking_ref || c.id.slice(0, 8).toUpperCase()}</span>
+                      {" — "}
+                      {c.event_date}
+                      {c.slot ? ` (${String(c.slot).toLowerCase()})` : c.event_time ? ` at ${c.event_time}` : ""}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-sm text-stone-600 mb-2">
+                  You can still accept this request. Before you do, tell the customer what they should know —
+                  they'll see this note on their booking before they pay.
+                </p>
+                <textarea
+                  className="border border-stone-300 rounded w-full px-3 py-2 text-sm mb-1 min-h-[90px]"
+                  placeholder="e.g. We'll be hosting another private event on the same date — you'll have your own dedicated area, but shared common spaces may be busier than usual."
+                  value={disclosureNote}
+                  onChange={(e) => setDisclosureNote(e.target.value)}
+                />
+                {!noteReady && (
+                  <p className="text-xs text-stone-400 mb-3">A disclosure note is required to accept this booking.</p>
+                )}
+                {noteReady && <div className="mb-3" />}
+                {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    className="text-sm text-stone-500 px-3 py-1.5"
+                    disabled={busy}
+                    onClick={() => { setAcceptDialog(null); setDisclosureNote(""); setActionError(""); }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-emerald-600 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                    disabled={!noteReady || busy}
+                    onClick={() => acceptBooking(acceptDialog.id, disclosureNote)}
+                  >
+                    {busy ? "Accepting…" : "Accept anyway"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
           </>
         )}
 

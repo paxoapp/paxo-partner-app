@@ -215,6 +215,11 @@ export default function App() {
   const [editingItemId, setEditingItemId] = useState(null);
   const [editItemDesc, setEditItemDesc] = useState("");
   const [menuError, setMenuError] = useState("");
+  const [menuErrorCat, setMenuErrorCat] = useState(null); // categoryId an add-item error belongs to
+  const [openCats, setOpenCats] = useState({}); // { [categoryId]: true } — expanded; collapsed by default
+  const [suggestions, setSuggestions] = useState([]); // item_suggestions rows: { category_kind, name }
+  const [suggestionPicks, setSuggestionPicks] = useState({}); // { [categoryId]: { [name]: true } }
+  const [addingSuggested, setAddingSuggested] = useState(null); // categoryId while bulk-inserting
 
   const [packages, setPackages] = useState([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
@@ -229,10 +234,12 @@ export default function App() {
     ["starter_non_veg", "Starters (non-veg)"],
     ["main_veg", "Mains (veg)"],
     ["main_non_veg", "Mains (non-veg)"],
+    ["side", "Side"],
     ["dessert", "Dessert"],
     ["wine", "Wine"],
     ["beer", "Beer"],
     ["whisky", "Whisky"],
+    ["single_malt", "Single Malt"],
     ["vodka", "Vodka"],
     ["rum", "Rum"],
     ["gin", "Gin"],
@@ -275,8 +282,15 @@ export default function App() {
   useEffect(() => {
     if (screen === "menu" && session && partnerVenue?.venue_id) {
       loadMenu(session.token, partnerVenue.venue_id);
+      // Curated reference list of common brands/dishes per category_kind. Small
+      // table, read-only for partners — load once per visit.
+      if (suggestions.length === 0) {
+        sb("/rest/v1/item_suggestions?select=category_kind,name", { token: session.token })
+          .then(setSuggestions)
+          .catch(() => {});
+      }
     }
-  }, [screen, session, partnerVenue, loadMenu]);
+  }, [screen, session, partnerVenue, loadMenu, suggestions.length]);
 
   async function addCategory(e) {
     e.preventDefault();
@@ -315,9 +329,14 @@ export default function App() {
 
   async function addItem(categoryId) {
     const name = (newItemName[categoryId] || "").trim();
-    if (!name) return;
-    const description = (newItemDesc[categoryId] || "").trim() || null;
     setMenuError("");
+    setMenuErrorCat(null);
+    if (!name) {
+      setMenuError("Enter an item name first.");
+      setMenuErrorCat(categoryId);
+      return;
+    }
+    const description = (newItemDesc[categoryId] || "").trim() || null;
     try {
       await sb("/rest/v1/menu_items", {
         method: "POST",
@@ -327,9 +346,57 @@ export default function App() {
       });
       setNewItemName({ ...newItemName, [categoryId]: "" });
       setNewItemDesc({ ...newItemDesc, [categoryId]: "" });
+      setMenuError("");
+      setMenuErrorCat(null);
       await loadMenu(session.token, partnerVenue.venue_id);
     } catch (e) {
       setMenuError(e.message);
+      setMenuErrorCat(categoryId);
+    }
+  }
+
+  // Suggestions for one category: everything seeded for its kind, minus names
+  // this category already has (case-insensitive), sorted alphabetically.
+  function suggestionsFor(cat) {
+    const have = new Set((cat.menu_items || []).map((i) => i.name.trim().toLowerCase()));
+    return suggestions
+      .filter((s) => s.category_kind === cat.kind && !have.has(s.name.trim().toLowerCase()))
+      .map((s) => s.name)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  const toggleSuggestionPick = (categoryId, name) =>
+    setSuggestionPicks((m) => ({
+      ...m,
+      [categoryId]: { ...(m[categoryId] || {}), [name]: !m[categoryId]?.[name] },
+    }));
+
+  // Insert every checked suggestion for a category in one request.
+  async function addSuggestedItems(categoryId) {
+    const picks = suggestionPicks[categoryId] || {};
+    const names = Object.keys(picks).filter((n) => picks[n]);
+    if (names.length === 0) return;
+    setMenuError("");
+    setMenuErrorCat(null);
+    setAddingSuggested(categoryId);
+    try {
+      await sb("/rest/v1/menu_items", {
+        method: "POST",
+        token: session.token,
+        prefer: "return=minimal",
+        body: names.map((name) => ({
+          venue_id: partnerVenue.venue_id,
+          category_id: categoryId,
+          name,
+        })),
+      });
+      setSuggestionPicks((m) => ({ ...m, [categoryId]: {} }));
+      await loadMenu(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setMenuError(e.message);
+      setMenuErrorCat(categoryId);
+    } finally {
+      setAddingSuggested(null);
     }
   }
 
@@ -1430,7 +1497,11 @@ export default function App() {
   const pendingCount = bookings.filter((b) => b.status === "pending").length;
   const upcomingCount = bookings.filter((b) => b.status === "accepted").length;
   const menuSectionKinds = menuSection === "food" ? FOOD_KINDS : BEVERAGE_KINDS;
-  const visibleCategories = categories.filter((cat) => menuSectionKinds.includes(cat.kind));
+  // Render in the venue's curated sort_order (loadMenu already fetches that
+  // order; sort again so it holds regardless of fetch/React ordering).
+  const visibleCategories = categories
+    .filter((cat) => menuSectionKinds.includes(cat.kind))
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const settlementBookings = bookings.filter((b) => ["accepted", "confirmed", "completed"].includes(b.status));
   const pendingSettlementTotal = bookings
     .filter((b) => b.status === "accepted")
@@ -1456,13 +1527,13 @@ export default function App() {
                 className={`hover:text-teal-400 ${screen === "upcoming" ? "text-teal-400" : "text-slate-300"}`}
                 onClick={() => setScreen("upcoming")}
               >
-                Upcoming
+                Upcoming Events
               </button>
               <button
                 className={`hover:text-teal-400 ${screen === "menu" ? "text-teal-400" : "text-slate-300"}`}
                 onClick={() => setScreen("menu")}
               >
-                Menu
+                Menu Management
               </button>
               <button
                 className={`hover:text-teal-400 ${screen === "payments" ? "text-teal-400" : "text-slate-300"}`}
@@ -1801,7 +1872,7 @@ export default function App() {
 
         {screen === "upcoming" && (
           <div>
-            <h1 className="font-serif text-3xl mb-1">Upcoming events</h1>
+            <h1 className="font-serif text-3xl mb-1">Upcoming Events</h1>
             <p className="text-stone-500 text-sm mb-6">Accepted and confirmed bookings for {partnerVenue?.venues?.name}.</p>
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
             <div className="flex flex-col gap-3">
@@ -1951,7 +2022,7 @@ export default function App() {
 
         {screen === "menu" && (
           <div>
-            <h1 className="font-serif text-3xl mb-1">Menu & Beverages</h1>
+            <h1 className="font-serif text-3xl mb-1">Menu Management</h1>
             <p className="text-stone-500 text-sm mb-6">
               Manage categories and items for {partnerVenue?.venues?.name}. Changes are visible to customers immediately.
             </p>
@@ -1997,21 +2068,45 @@ export default function App() {
               <button className="bg-teal-500 text-white text-sm font-medium px-4 py-2 rounded">Add category</button>
             </form>
 
-            {menuError && <p className="text-rose-600 text-sm mb-3">{menuError}</p>}
+            {menuError && !menuErrorCat && <p className="text-rose-600 text-sm mb-3">{menuError}</p>}
             {menuLoading && <p className="text-stone-400 text-sm">Loading…</p>}
 
             <div className="flex flex-col gap-4">
-              {visibleCategories.map((cat) => (
-                <div key={cat.id} className="border border-stone-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="font-medium">{cat.name}</p>
-                      <p className="text-xs text-stone-400">{CATEGORY_KINDS.find(([k]) => k === cat.kind)?.[1]}</p>
-                    </div>
-                    <button className="text-xs text-rose-600" onClick={() => deleteCategory(cat.id)}>
+              {visibleCategories.map((cat) => {
+                const kindLabel = CATEGORY_KINDS.find(([k]) => k === cat.kind)?.[1] || cat.kind;
+                const isOpen = !!openCats[cat.id];
+                const catSuggestions = suggestionsFor(cat);
+                const picks = suggestionPicks[cat.id] || {};
+                const pickCount = Object.values(picks).filter(Boolean).length;
+                return (
+                <div key={cat.id} className="border border-stone-200 rounded-lg bg-white">
+                  <div className="flex items-center justify-between gap-3 p-4">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenCats((m) => ({ ...m, [cat.id]: !m[cat.id] }))}
+                      className="flex items-center gap-2.5 text-left min-w-0"
+                    >
+                      <span
+                        aria-hidden
+                        className="inline-flex shrink-0 items-center justify-center w-6 h-6 rounded-full border border-stone-300 bg-stone-50 text-stone-600 text-sm leading-none transition-colors hover:bg-stone-100"
+                      >
+                        {isOpen ? "−" : "+"}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="font-medium block truncate">{cat.name}</span>
+                        <span className="text-xs text-stone-400">
+                          {kindLabel} · {cat.menu_items?.length || 0} item{(cat.menu_items?.length || 0) === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                    </button>
+                    <button type="button" className="text-xs text-rose-600 shrink-0" onClick={() => deleteCategory(cat.id)}>
                       Delete category
                     </button>
                   </div>
+
+                  {isOpen && (
+                  <div className="px-4 pb-4">
                   <div className="flex flex-col gap-2 mb-3">
                     {cat.menu_items?.map((item) => (
                       <div key={item.id} className="flex flex-col gap-1 text-sm border-b border-stone-100 pb-2 last:border-0">
@@ -2059,17 +2154,56 @@ export default function App() {
                       <p className="text-xs text-stone-400">No items yet.</p>
                     )}
                   </div>
+                  {catSuggestions.length > 0 && (
+                    <div className="border border-stone-200 bg-stone-50 rounded-lg p-3 mb-3">
+                      <p className="text-xs font-medium text-stone-600 mb-2">
+                        Suggested {kindLabel.toLowerCase()} — tick what this venue serves
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 mb-3">
+                        {catSuggestions.map((name) => (
+                          <label key={name} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-stone-300"
+                              checked={!!picks[name]}
+                              onChange={() => toggleSuggestionPick(cat.id, name)}
+                            />
+                            {name}
+                          </label>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={pickCount === 0 || addingSuggested === cat.id}
+                        onClick={() => addSuggestedItems(cat.id)}
+                        className="bg-teal-500 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                      >
+                        {addingSuggested === cat.id
+                          ? "Adding…"
+                          : `Add selected${pickCount ? ` (${pickCount})` : ""}`}
+                      </button>
+                    </div>
+                  )}
+
+                  {menuErrorCat === cat.id && menuError && (
+                    <p className="text-xs text-rose-600 mb-2">{menuError}</p>
+                  )}
                   <div className="flex flex-col gap-2">
+                    <p className="text-xs text-stone-500">Don't see it? Add manually</p>
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="Add item"
+                        placeholder="Item name"
                         className="border border-stone-300 rounded px-3 py-1.5 text-sm flex-1"
                         value={newItemName[cat.id] || ""}
                         onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })}
                         onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addItem(cat.id))}
                       />
-                      <button className="text-sm border border-stone-300 rounded px-3 py-1.5" onClick={() => addItem(cat.id)}>
+                      <button
+                        type="button"
+                        className="text-sm border border-stone-300 rounded px-3 py-1.5"
+                        onClick={() => addItem(cat.id)}
+                      >
                         Add
                       </button>
                     </div>
@@ -2082,8 +2216,11 @@ export default function App() {
                       onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addItem(cat.id))}
                     />
                   </div>
+                  </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
               {!menuLoading && visibleCategories.length === 0 && (
                 <p className="text-stone-400 text-sm">No {menuSection === "food" ? "food" : "beverage"} categories yet — add one above to get started.</p>
               )}
@@ -2721,8 +2858,8 @@ export default function App() {
       >
         {[
           { key: "dashboard", label: "Requests", Icon: Inbox },
-          { key: "upcoming", label: "Upcoming", Icon: CalendarClock },
-          { key: "menu", label: "Menu", Icon: UtensilsCrossed },
+          { key: "upcoming", label: "Upcoming Events", Icon: CalendarClock },
+          { key: "menu", label: "Menu Management", Icon: UtensilsCrossed },
           { key: "payments", label: "Payments", Icon: Wallet },
           { key: "profile", label: "Profile", Icon: User },
         ].map(({ key, label, Icon }) => {
@@ -2734,7 +2871,7 @@ export default function App() {
               onClick={() => { setScreen(key); setMenuOpen(false); }}
             >
               <Icon size={22} strokeWidth={active ? 2.4 : 1.8} className={active ? "text-teal-600" : "text-stone-400"} />
-              <span className={`text-[11px] ${active ? "text-teal-600 font-medium" : "text-stone-400"}`}>{label}</span>
+              <span className={`text-[10px] leading-tight text-center ${active ? "text-teal-600 font-medium" : "text-stone-400"}`}>{label}</span>
             </button>
           );
         })}

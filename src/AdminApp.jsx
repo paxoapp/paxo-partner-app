@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { sb, signIn, fetchAdminRow, signedDocumentUrl } from "./supabase";
 import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
 import StatusStepper from "./StatusStepper";
+import SocialLinks from "./SocialLinks";
 
 const TABS = [
   ["submitted", "Submitted"],
@@ -774,6 +775,11 @@ export default function AdminApp() {
           </>
         )}
       </main>
+
+      <footer className="max-w-5xl mx-auto px-5 pb-8 pt-2 flex items-center gap-3">
+        <span className="text-xs text-slate-400">Paxo</span>
+        <SocialLinks linkClass="text-slate-400 hover:text-slate-600" />
+      </footer>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
+import SocialLinks from "./SocialLinks";
 import { sb, SUPABASE_URL } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
@@ -2805,6 +2806,11 @@ export default function App() {
                 {venueTermsSaving ? "Saving…" : "Save terms"}
               </button>
             </form>
+
+            <div className="mt-6 flex items-center gap-3">
+              <span className="text-xs text-stone-400">Paxo official channels</span>
+              <SocialLinks linkClass="text-stone-400 hover:text-accent-ink" />
+            </div>
           </div>
         )}
 

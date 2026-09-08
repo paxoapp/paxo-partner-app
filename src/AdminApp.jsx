@@ -551,6 +551,219 @@ function Settlements({ session }) {
   );
 }
 
+// Booking status badge palette — same Tailwind classes the partner Requests
+// screen uses (App.jsx `statusColor`), copied here to avoid importing from the
+// partner app module.
+const BOOKING_STATUS_CLS = {
+  pending: "bg-amber-100 text-amber-800",
+  accepted: "bg-blue-100 text-blue-800",
+  rejected: "bg-rose-100 text-rose-800",
+  confirmed: "bg-emerald-100 text-emerald-800",
+  completed: "bg-emerald-100 text-emerald-800",
+  cancelled: "bg-rose-100 text-rose-800",
+  unconfirmed: "bg-stone-200 text-stone-800",
+  no_show: "bg-rose-100 text-rose-800",
+};
+const BOOKING_STATUS_ORDER = [
+  "pending",
+  "accepted",
+  "rejected",
+  "confirmed",
+  "unconfirmed",
+  "no_show",
+  "cancelled",
+  "completed",
+];
+
+function BookingStatusPill({ status }) {
+  return (
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full capitalize ${
+        BOOKING_STATUS_CLS[status] || "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {String(status || "").replace(/_/g, " ")}
+    </span>
+  );
+}
+
+// Read-only platform overview. Every figure is pulled live with the admin token,
+// same as Onboarding/Settlements — no aggregation is pushed to the DB, sums are
+// done client-side over the raw rows (matching the Settlements approach).
+function Dashboard({ session, venues, onGoToOnboarding }) {
+  const [bookings, setBookings] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [customerCount, setCustomerCount] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [bk, pm, prof] = await Promise.all([
+        sb(
+          "/rest/v1/bookings?select=id,total_amount,status,event_date,contact_name,created_at,venues(name)&order=created_at.desc",
+          { token: session.token }
+        ),
+        sb(
+          "/rest/v1/payments?status=eq.paid&select=amount,platform_fee_amount,partner_payout_amount,settlement_status",
+          { token: session.token }
+        ),
+        sb("/rest/v1/profiles?select=id", { token: session.token }),
+      ]);
+      setBookings(bk);
+      setPayments(pm);
+      setCustomerCount(prof.length);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const sum = (arr, pick) => arr.reduce((s, x) => s + Number(pick(x) || 0), 0);
+  const gmv = sum(
+    bookings.filter((b) => !["cancelled", "rejected"].includes(b.status)),
+    (b) => b.total_amount
+  );
+  const platformRevenue = sum(payments, (p) => p.platform_fee_amount);
+  const depositsCollected = sum(payments, (p) => p.amount);
+  const pendingPayouts = sum(
+    payments.filter((p) => p.settlement_status === "pending"),
+    (p) => p.partner_payout_amount
+  );
+
+  const bookingCounts = bookings.reduce((a, b) => {
+    a[b.status] = (a[b.status] || 0) + 1;
+    return a;
+  }, {});
+  const venueCounts = (venues || []).reduce((a, v) => {
+    a[v.status] = (a[v.status] || 0) + 1;
+    return a;
+  }, {});
+  const pendingReview = (venueCounts.submitted || 0) + (venueCounts.under_review || 0);
+  const recent = bookings.slice(0, 10);
+
+  const kpis = [
+    ["GMV", gmv],
+    ["Platform Revenue", platformRevenue],
+    ["Deposits Collected", depositsCollected],
+    ["Pending Payouts", pendingPayouts],
+  ];
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Dashboard</h1>
+      <p className="text-sm text-slate-500 mb-4">Live platform overview.</p>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {kpis.map(([label, val]) => (
+              <div key={label} className="bg-white border border-slate-200 rounded-lg p-4">
+                <p className="text-xs text-slate-500">{label}</p>
+                <p className="text-xl font-semibold mt-1">{inr(val)}</p>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <h2 className="text-sm font-medium text-slate-700 mb-2">Bookings by status</h2>
+            {BOOKING_STATUS_ORDER.some((s) => bookingCounts[s]) ? (
+              <div className="flex flex-wrap gap-2">
+                {BOOKING_STATUS_ORDER.filter((s) => bookingCounts[s]).map((s) => (
+                  <div
+                    key={s}
+                    className="bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2"
+                  >
+                    <BookingStatusPill status={s} />
+                    <span className="text-sm font-semibold">{bookingCounts[s]}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-400 text-sm">No bookings yet.</p>
+            )}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <p className="text-xs text-slate-500">Partners</p>
+              <p className="text-xl font-semibold mt-1">
+                {(venues || []).length}{" "}
+                <span className="text-sm font-normal text-slate-400">venues</span>
+              </p>
+              <div className="mt-3 flex flex-col gap-1 text-sm">
+                {["submitted", "under_review", "approved", "rejected"].map((s) => (
+                  <div key={s} className="flex justify-between">
+                    <span className="text-slate-500">{VENUE_STATUS_LABELS[s]}</span>
+                    <span className="font-medium">{venueCounts[s] || 0}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={onGoToOnboarding}
+                className="mt-3 text-sm text-teal-700 underline hover:text-teal-900"
+              >
+                {pendingReview} pending review →
+              </button>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <p className="text-xs text-slate-500">Customers</p>
+              <p className="text-xl font-semibold mt-1">{customerCount ?? "—"}</p>
+              <p className="text-sm text-slate-400 mt-1">Registered customer profiles</p>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-medium text-slate-700 mb-2">Recent bookings</h2>
+            {recent.length === 0 ? (
+              <p className="text-slate-400 text-sm">No bookings yet.</p>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-2">Venue</th>
+                      <th className="text-left px-4 py-2">Customer</th>
+                      <th className="text-left px-4 py-2">Event date</th>
+                      <th className="text-left px-4 py-2">Status</th>
+                      <th className="text-right px-4 py-2">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recent.map((b) => (
+                      <tr key={b.id} className="border-t border-slate-100">
+                        <td className="px-4 py-2.5 font-medium">{b.venues?.name || "—"}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{b.contact_name || "—"}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{fmtDate(b.event_date)}</td>
+                        <td className="px-4 py-2.5">
+                          <BookingStatusPill status={b.status} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right">{inr(b.total_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [session, setSession] = useState(null);
   const [admin, setAdmin] = useState(null);
@@ -559,7 +772,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  const [section, setSection] = useState("onboarding"); // 'onboarding' | 'settlements'
+  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -684,6 +897,7 @@ export default function AdminApp() {
       <nav className="bg-white border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-5 flex gap-1">
           {[
+            ["dashboard", "Dashboard"],
             ["onboarding", "Onboarding"],
             ["settlements", "Settlements"],
           ].map(([key, label]) => (
@@ -706,7 +920,17 @@ export default function AdminApp() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-5 py-6">
-        {section === "settlements" ? (
+        {section === "dashboard" ? (
+          <Dashboard
+            session={session}
+            venues={venues}
+            onGoToOnboarding={() => {
+              setSection("onboarding");
+              setTab("submitted");
+              setSelectedId(null);
+            }}
+          />
+        ) : section === "settlements" ? (
           <Settlements session={session} />
         ) : selected ? (
           <VenueDetail

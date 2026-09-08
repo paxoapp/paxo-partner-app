@@ -200,6 +200,19 @@ export default function App() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
 
+  const [bankDetails, setBankDetails] = useState(null);
+  const [bankForm, setBankForm] = useState({
+    account_holder_name: "",
+    account_number: "",
+    ifsc_code: "",
+    bank_name: "",
+    branch_name: "",
+    upi_id: "",
+  });
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankSaved, setBankSaved] = useState(false);
+  const [bankError, setBankError] = useState("");
+
   const [settingsPassword, setSettingsPassword] = useState("");
   const [settingsPasswordConfirm, setSettingsPasswordConfirm] = useState("");
   const [settingsError, setSettingsError] = useState("");
@@ -534,6 +547,17 @@ export default function App() {
     }
   }, [session, loadPartnerVenue]);
 
+  // Payout bank details — a separate table (not embedded on partner_users),
+  // fetched by venue_id once the partner's venue is known.
+  const loadBankDetails = useCallback(async (token, venueId) => {
+    try {
+      const rows = await sb(`/rest/v1/partner_bank_details?venue_id=eq.${venueId}&select=*`, { token });
+      setBankDetails(rows[0] || null);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const loadBookings = useCallback(async (token, venueId) => {
     setBookingsLoading(true);
     try {
@@ -586,6 +610,25 @@ export default function App() {
       setVenueTerms(partnerVenue.venues?.terms_and_conditions || "");
     }
   }, [partnerVenue]);
+
+  useEffect(() => {
+    if (partnerVenue?.venue_id && session?.token) {
+      loadBankDetails(session.token, partnerVenue.venue_id);
+    }
+  }, [partnerVenue, session, loadBankDetails]);
+
+  useEffect(() => {
+    if (bankDetails) {
+      setBankForm({
+        account_holder_name: bankDetails.account_holder_name || "",
+        account_number: bankDetails.account_number || "",
+        ifsc_code: bankDetails.ifsc_code || "",
+        bank_name: bankDetails.bank_name || "",
+        branch_name: bankDetails.branch_name || "",
+        upi_id: bankDetails.upi_id || "",
+      });
+    }
+  }, [bankDetails]);
 
   useEffect(() => {
     if (
@@ -856,6 +899,40 @@ export default function App() {
       setVenueTermsError(e.message);
     } finally {
       setVenueTermsSaving(false);
+    }
+  }
+
+  async function saveBankDetails(e) {
+    e.preventDefault();
+    setBankError("");
+    setBankSaved(false);
+    if (!bankForm.account_holder_name.trim() || !bankForm.account_number.trim() || !bankForm.ifsc_code.trim()) {
+      setBankError("Account holder name, account number, and IFSC code are required.");
+      return;
+    }
+    setBankSaving(true);
+    try {
+      await sb(`/rest/v1/partner_bank_details?on_conflict=venue_id`, {
+        method: "POST",
+        token: session.token,
+        prefer: "resolution=merge-duplicates,return=minimal",
+        body: {
+          venue_id: partnerVenue.venue_id,
+          account_holder_name: bankForm.account_holder_name.trim(),
+          account_number: bankForm.account_number.trim(),
+          ifsc_code: bankForm.ifsc_code.trim().toUpperCase(),
+          bank_name: bankForm.bank_name.trim() || null,
+          branch_name: bankForm.branch_name.trim() || null,
+          upi_id: bankForm.upi_id.trim() || null,
+          updated_at: new Date().toISOString(),
+        },
+      });
+      await loadBankDetails(session.token, partnerVenue.venue_id);
+      setBankSaved(true);
+    } catch (e) {
+      setBankError(e.message);
+    } finally {
+      setBankSaving(false);
     }
   }
 
@@ -2774,6 +2851,84 @@ export default function App() {
                 className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {profileLoading ? "Saving…" : "Save changes"}
+              </button>
+            </form>
+
+            <form
+              onSubmit={saveBankDetails}
+              className="flex flex-col gap-4 bg-white border border-stone-200 rounded-lg p-5 mt-6"
+            >
+              <div>
+                <h2 className="text-sm font-medium mb-1">Bank details</h2>
+                <p className="text-stone-500 text-xs">
+                  Where PAXO sends your booking payouts. Kept private — customers never see this.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Account holder name</label>
+                <input
+                  type="text"
+                  required
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                  value={bankForm.account_holder_name}
+                  onChange={(e) => setBankForm({ ...bankForm, account_holder_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Account number</label>
+                <input
+                  type="text"
+                  required
+                  inputMode="numeric"
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                  value={bankForm.account_number}
+                  onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">IFSC code</label>
+                <input
+                  type="text"
+                  required
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full uppercase"
+                  value={bankForm.ifsc_code}
+                  onChange={(e) => setBankForm({ ...bankForm, ifsc_code: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Bank name</label>
+                <input
+                  type="text"
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                  value={bankForm.bank_name}
+                  onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Branch (optional)</label>
+                <input
+                  type="text"
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                  value={bankForm.branch_name}
+                  onChange={(e) => setBankForm({ ...bankForm, branch_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">UPI ID (optional)</label>
+                <input
+                  type="text"
+                  className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                  value={bankForm.upi_id}
+                  onChange={(e) => setBankForm({ ...bankForm, upi_id: e.target.value })}
+                />
+              </div>
+              {bankError && <p className="text-rose-600 text-sm">{bankError}</p>}
+              {bankSaved && <p className="text-emerald-600 text-sm">Bank details saved.</p>}
+              <button
+                disabled={bankSaving}
+                className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+              >
+                {bankSaving ? "Saving…" : "Save bank details"}
               </button>
             </form>
 

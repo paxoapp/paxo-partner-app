@@ -1,5 +1,10 @@
 {
   "rewrites": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "admin.mypaxo.in" }],
+      "destination": "/index.html"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

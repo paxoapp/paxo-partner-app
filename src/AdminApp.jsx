@@ -372,6 +372,121 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   );
 }
 
+// Full picture of one transaction's money flow — what the customer paid PAXO,
+// the platform fee PAXO retained, and what PAXO owes/paid the partner — plus
+// the partner's bank details on file, so this doubles as settlement proof.
+// Printable: the Print button and the app's header/nav carry print:hidden so
+// only the receipt itself prints or "Save as PDF"s cleanly.
+function TransactionReceipt({ session, payment: p, onBack }) {
+  const [bank, setBank] = useState(null);
+  const [bankLoading, setBankLoading] = useState(true);
+  const b = p.bookings || {};
+  const venueId = b.venues?.id;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!venueId) {
+      setBankLoading(false);
+      return;
+    }
+    setBankLoading(true);
+    sb(`/rest/v1/partner_bank_details?venue_id=eq.${venueId}&select=*`, { token: session.token })
+      .then((rows) => !cancelled && setBank(rows[0] || null))
+      .catch(() => !cancelled && setBank(null))
+      .finally(() => !cancelled && setBankLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [venueId, session.token]);
+
+  const Row = ({ label, value }) => (
+    <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-stone-100 text-sm">
+      <span className="text-stone-500">{label}</span>
+      <span className="col-span-2 break-words">{value ?? "—"}</span>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 print:hidden">
+        <button onClick={onBack} className="text-sm text-stone-500">
+          ← Back to settlements
+        </button>
+        <button onClick={() => window.print()} className="text-sm bg-slate-900 text-white rounded px-4 py-2">
+          Print / Save as PDF
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-lg p-6 max-w-2xl mx-auto print:border-0 print:shadow-none">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <p className="font-black text-xl">PAXO</p>
+            <p className="text-xs uppercase tracking-widest text-stone-400">Transaction Receipt</p>
+          </div>
+          <div className="text-right text-sm text-stone-500">
+            <p>Booking ref: {b.booking_ref || "—"}</p>
+            <p>Generated {fmtDateTime(new Date().toISOString())}</p>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="font-medium text-sm mb-2">Booking</h3>
+          <Row label="Venue" value={b.venues?.name} />
+          <Row label="Event date" value={fmtDate(b.event_date)} />
+          <Row label="Customer" value={b.contact_name} />
+          <Row label="Customer mobile" value={b.contact_mobile} />
+          <Row label="Customer email" value={b.contact_email} />
+          <Row label="Total booking amount" value={inr(b.total_amount)} />
+        </div>
+
+        <div className="mb-4">
+          <h3 className="font-medium text-sm mb-2">1. Payment received — Customer → PAXO</h3>
+          <Row label="Amount received" value={inr(p.amount)} />
+          <Row label="Payment type" value={p.payment_type} />
+          <Row label="Deposit tier" value={b.deposit_tier} />
+          <Row label="Received on" value={fmtDateTime(p.paid_at)} />
+          <Row label="Payment reference" value={p.razorpay_payment_id} />
+        </div>
+
+        <div className="mb-4">
+          <h3 className="font-medium text-sm mb-2">2. Platform fee retained by PAXO</h3>
+          <Row label="Platform fee" value={inr(p.platform_fee_amount)} />
+        </div>
+
+        <div className="mb-4">
+          <h3 className="font-medium text-sm mb-2">3. Payout — PAXO → Partner</h3>
+          <Row label="Payable to partner" value={inr(p.partner_payout_amount)} />
+          <Row
+            label="Settlement status"
+            value={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
+          />
+        </div>
+
+        <div className="mb-2">
+          <h3 className="font-medium text-sm mb-2">Payout account on file</h3>
+          {bankLoading ? (
+            <p className="text-sm text-stone-400">Loading…</p>
+          ) : bank ? (
+            <>
+              <Row label="Account holder" value={bank.account_holder_name} />
+              <Row label="Account number" value={bank.account_number} />
+              <Row label="IFSC" value={bank.ifsc_code} />
+              <Row label="Bank" value={[bank.bank_name, bank.branch_name].filter(Boolean).join(", ") || null} />
+              {bank.upi_id && <Row label="UPI" value={bank.upi_id} />}
+            </>
+          ) : (
+            <p className="text-sm text-amber-700">No bank details on file for this partner yet.</p>
+          )}
+        </div>
+
+        <p className="text-xs text-stone-400 mt-6 pt-4 border-t border-stone-100">
+          Internal PAXO record of this transaction's flow of funds. Not a GST tax invoice.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const SETTLEMENT_TABS = [
   ["pending", "Pending"],
   ["settled", "Settled"],
@@ -388,13 +503,17 @@ function Settlements({ session }) {
   const [confirming, setConfirming] = useState(null); // payment row awaiting confirmation
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
+  const [viewingReceipt, setViewingReceipt] = useState(null); // payment row awaiting the receipt view
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const data = await sb(
-        "/rest/v1/payments?status=eq.paid&select=id,amount,platform_fee_amount,partner_payout_amount,paid_at,settlement_status,settled_at,payment_type,bookings(event_date,venues(name))&order=paid_at.desc.nullslast",
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
+          "partner_payout_amount,paid_at,settlement_status,settled_at,payment_type," +
+          "bookings(id,booking_ref,event_date,total_amount,deposit_tier,contact_name,contact_mobile," +
+          "contact_email,venues(id,name))&order=paid_at.desc.nullslast",
         { token: session.token }
       );
       setRows(data);
@@ -436,6 +555,12 @@ function Settlements({ session }) {
   const pendingPayout = rows
     .filter((r) => r.settlement_status === "pending")
     .reduce((s, r) => s + Number(r.partner_payout_amount || 0), 0);
+
+  if (viewingReceipt) {
+    return (
+      <TransactionReceipt session={session} payment={viewingReceipt} onBack={() => setViewingReceipt(null)} />
+    );
+  }
 
   return (
     <div>
@@ -506,15 +631,23 @@ function Settlements({ session }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {p.settlement_status === "pending" && (
+                    <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => setConfirming(p)}
-                        disabled={busyId === p.id}
-                        className="text-xs bg-slate-900 text-white rounded px-3 py-1.5 disabled:opacity-50"
+                        onClick={() => setViewingReceipt(p)}
+                        className="text-xs border border-slate-300 text-slate-600 rounded px-3 py-1.5"
                       >
-                        Mark as Settled
+                        Receipt
                       </button>
-                    )}
+                      {p.settlement_status === "pending" && (
+                        <button
+                          onClick={() => setConfirming(p)}
+                          disabled={busyId === p.id}
+                          className="text-xs bg-slate-900 text-white rounded px-3 py-1.5 disabled:opacity-50"
+                        >
+                          Mark as Settled
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1116,7 +1249,7 @@ export default function AdminApp() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <header className="bg-slate-900 text-white">
+      <header className="bg-slate-900 text-white print:hidden">
         <div className="max-w-5xl mx-auto px-5 py-3 flex items-center justify-between">
           <div className="flex items-baseline gap-2">
             <span className="font-black text-lg">PAXO</span>
@@ -1129,7 +1262,7 @@ export default function AdminApp() {
         </div>
       </header>
 
-      <nav className="bg-white border-b border-slate-200">
+      <nav className="bg-white border-b border-slate-200 print:hidden">
         <div className="max-w-5xl mx-auto px-5 flex gap-1">
           {[
             ["dashboard", "Dashboard"],
@@ -1245,7 +1378,7 @@ export default function AdminApp() {
         )}
       </main>
 
-      <footer className="max-w-5xl mx-auto px-5 pb-8 pt-2 flex items-center gap-3">
+      <footer className="max-w-5xl mx-auto px-5 pb-8 pt-2 flex items-center gap-3 print:hidden">
         <span className="text-xs text-slate-400">Paxo</span>
         <SocialLinks linkClass="text-slate-400 hover:text-slate-600" />
       </footer>

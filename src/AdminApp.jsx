@@ -14,6 +14,16 @@ const TABS = [
 
 const nowIso = () => new Date().toISOString();
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
+const fmtDateTime = (d) =>
+  d
+    ? new Date(d).toLocaleString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "—";
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
@@ -587,6 +597,223 @@ function BookingStatusPill({ status }) {
   );
 }
 
+const REQUEST_TABS = [
+  ["all", "All"],
+  ["pending", "Pending"],
+  ["accepted", "Accepted"],
+  ["confirmed", "Confirmed"],
+  ["unconfirmed", "Unconfirmed"],
+  ["completed", "Completed"],
+  ["rejected", "Rejected"],
+  ["no_show", "No-show"],
+  ["cancelled", "Cancelled"],
+];
+
+// Full lifecycle view of a single booking request — who requested it, who it
+// went to, whether/when they responded, and everything that happened after,
+// so support staff can answer "what's going on with this booking" without
+// having to ask the partner.
+function RequestDetail({ booking: b, onBack }) {
+  const Row = ({ label, value }) => (
+    <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-stone-100 text-sm">
+      <span className="text-stone-500">{label}</span>
+      <span className="col-span-2 break-words">{value ?? "—"}</span>
+    </div>
+  );
+
+  return (
+    <div>
+      <button onClick={onBack} className="text-sm text-stone-500 mb-4">← Back to requests</button>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-2xl font-semibold">{b.venues?.name || "—"}</h2>
+          <p className="text-stone-500 text-sm">
+            {b.venue_packages?.name || "—"} · {fmtDate(b.event_date)}
+          </p>
+        </div>
+        <BookingStatusPill status={b.status} />
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Customer</h3>
+        <Row label="Name" value={b.contact_name} />
+        <Row label="Mobile" value={b.contact_mobile} />
+        <Row label="Email" value={b.contact_email} />
+        <Row label="Headcount" value={b.headcount} />
+        <Row label="Occasion" value={b.occasion_other} />
+        <Row label="Special request" value={b.special_request} />
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Timeline</h3>
+        <Row label="Requested" value={fmtDateTime(b.requested_at)} />
+        <Row label="Response deadline" value={fmtDateTime(b.response_deadline)} />
+        <Row label="Responded" value={fmtDateTime(b.responded_at)} />
+        <Row label="Last-minute booking" value={b.is_last_minute ? "Yes" : "No"} />
+        <Row label="Menu finalized" value={fmtDateTime(b.menu_finalized_at)} />
+        <Row label="Check-in OTP generated" value={fmtDateTime(b.checkin_otp_generated_at)} />
+        <Row label="Event started (checked in)" value={fmtDateTime(b.event_started_at)} />
+        <Row label="Cancelled" value={fmtDateTime(b.cancelled_at)} />
+      </div>
+
+      {b.status === "rejected" && b.rejection_reason && (
+        <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 mb-4 text-sm">
+          <p className="font-medium text-rose-800 mb-1">Rejection reason</p>
+          <p className="whitespace-pre-wrap">{b.rejection_reason}</p>
+        </div>
+      )}
+
+      {b.status === "cancelled" && b.cancellation_reason && (
+        <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 mb-4 text-sm">
+          <p className="font-medium text-rose-800 mb-1">Cancellation reason</p>
+          <p className="whitespace-pre-wrap">{b.cancellation_reason}</p>
+        </div>
+      )}
+
+      {b.partner_disclosure_note && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-sm">
+          <p className="font-medium text-amber-800 mb-1">
+            Partner disclosure{b.disclosure_response ? ` · ${b.disclosure_response}` : ""}
+          </p>
+          <p className="whitespace-pre-wrap">{b.partner_disclosure_note}</p>
+        </div>
+      )}
+
+      <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Payment</h3>
+        <Row label="Total amount" value={inr(b.total_amount)} />
+        <Row label="Deposit tier" value={b.deposit_tier} />
+        <Row label="Deposit amount" value={inr(b.deposit_amount)} />
+        <Row label="Booking ref" value={b.booking_ref} />
+      </div>
+    </div>
+  );
+}
+
+// Every booking request end-to-end — read-only, no PATCH here — so an analyst
+// can see who requested what from whom and what happened next, without
+// touching booking state. bookings_select_for_admin already grants this.
+function Requests({ session }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState("all");
+  const [selectedId, setSelectedId] = useState(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await sb(
+        "/rest/v1/bookings?select=id,booking_ref,event_date,headcount,status,requested_at,responded_at," +
+          "response_deadline,is_last_minute,total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
+          "contact_email,rejection_reason,cancellation_reason,cancelled_at,menu_finalized_at," +
+          "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
+          "special_request,venues(name),venue_packages(name)&order=requested_at.desc",
+        { token: session.token }
+      );
+      setRows(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const counts = rows.reduce((a, r) => {
+    a[r.status] = (a[r.status] || 0) + 1;
+    return a;
+  }, {});
+  const visible = rows.filter((r) => tab === "all" || r.status === tab);
+  const selected = rows.find((r) => r.id === selectedId) || null;
+
+  if (selected) {
+    return <RequestDetail booking={selected} onBack={() => setSelectedId(null)} />;
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Requests</h1>
+      <p className="text-sm text-slate-500 mb-4">
+        Every booking request between customers and partners — {rows.length} total.
+      </p>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {REQUEST_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`text-sm px-3 py-1.5 rounded-full border ${
+              tab === key ? "bg-slate-900 text-white border-slate-900" : "border-slate-300 text-slate-600"
+            }`}
+          >
+            {label}
+            {key !== "all" && counts[key] ? ` (${counts[key]})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : visible.length === 0 ? (
+        <p className="text-slate-400 text-sm">No requests in this view.</p>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">Customer</th>
+                <th className="text-left px-4 py-2">Venue</th>
+                <th className="text-left px-4 py-2 hidden md:table-cell">Package</th>
+                <th className="text-left px-4 py-2">Event date</th>
+                <th className="text-left px-4 py-2">Status</th>
+                <th className="text-left px-4 py-2 hidden lg:table-cell">Requested</th>
+                <th className="text-left px-4 py-2 hidden lg:table-cell">Responded</th>
+                <th className="text-right px-4 py-2">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((b) => (
+                <tr
+                  key={b.id}
+                  onClick={() => setSelectedId(b.id)}
+                  className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="font-medium">{b.contact_name || "—"}</span>
+                    <span className="block text-xs text-slate-400">{b.contact_mobile || ""}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600">{b.venues?.name || "—"}</td>
+                  <td className="px-4 py-2.5 hidden md:table-cell text-slate-600">
+                    {b.venue_packages?.name || "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600">{fmtDate(b.event_date)}</td>
+                  <td className="px-4 py-2.5">
+                    <BookingStatusPill status={b.status} />
+                  </td>
+                  <td className="px-4 py-2.5 hidden lg:table-cell text-slate-600">
+                    {fmtDateTime(b.requested_at)}
+                  </td>
+                  <td className="px-4 py-2.5 hidden lg:table-cell text-slate-600">
+                    {fmtDateTime(b.responded_at)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">{inr(b.total_amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Read-only platform overview. Every figure is pulled live with the admin token,
 // same as Onboarding/Settlements — no aggregation is pushed to the DB, sums are
 // done client-side over the raw rows (matching the Settlements approach).
@@ -772,7 +999,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'settlements'
+  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'requests' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -899,6 +1126,7 @@ export default function AdminApp() {
           {[
             ["dashboard", "Dashboard"],
             ["onboarding", "Onboarding"],
+            ["requests", "Requests"],
             ["settlements", "Settlements"],
           ].map(([key, label]) => (
             <button
@@ -930,6 +1158,8 @@ export default function AdminApp() {
               setSelectedId(null);
             }}
           />
+        ) : section === "requests" ? (
+          <Requests session={session} />
         ) : section === "settlements" ? (
           <Settlements session={session} />
         ) : selected ? (

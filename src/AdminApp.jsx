@@ -1004,6 +1004,7 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
   const [selectedId, setSelectedId] = useState(null);
+  const [venueSearch, setVenueSearch] = useState("");
 
   const loadVenues = useCallback(async (token) => {
     setLoading(true);
@@ -1103,7 +1104,14 @@ export default function AdminApp() {
     acc[v.status] = (acc[v.status] || 0) + 1;
     return acc;
   }, {});
-  const list = venues.filter((v) => tab === "all" || v.status === tab);
+  const searchQuery = venueSearch.trim().toLowerCase();
+  const list = venues.filter((v) => {
+    if (tab !== "all" && v.status !== tab) return false;
+    if (!searchQuery) return true;
+    return [v.name, v.city, v.area, v.owner_name, v.venue_type, v.contact_person_name, v.contact_phone]
+      .filter(Boolean)
+      .some((field) => String(field).toLowerCase().includes(searchQuery));
+  });
   const selected = venues.find((v) => v.id === selectedId) || null;
 
   return (
@@ -1177,6 +1185,13 @@ export default function AdminApp() {
             <p className="text-sm text-slate-500 mb-4">
               {venues.length} venue{venues.length === 1 ? "" : "s"} total
             </p>
+            <input
+              type="text"
+              value={venueSearch}
+              onChange={(e) => setVenueSearch(e.target.value)}
+              placeholder="Search by venue, city, area, owner, or contact…"
+              className="border border-slate-300 rounded px-3 py-1.5 text-sm w-full sm:w-80 mb-3"
+            />
             <div className="flex flex-wrap gap-2 mb-4">
               {TABS.map(([key, label]) => (
                 <button

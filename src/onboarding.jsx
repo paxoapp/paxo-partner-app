@@ -34,7 +34,7 @@ export const VENUE_STATUS_LABELS = {
 };
 
 const inputCls =
-  "bg-stone-900 border border-teal-900 rounded-2xl px-4 py-3 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600 w-full";
+  "bg-stone-900 border border-white/10 rounded-2xl px-4 py-3 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent w-full";
 const labelCls = "text-xs font-medium text-stone-300 mb-1 block";
 
 function Field({ label, children }) {
@@ -211,7 +211,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
               onClick={() => setF({ ...f, serves_alcohol: val })}
               className={`px-4 py-2 rounded-2xl text-sm border ${
                 f.serves_alcohol === val
-                  ? "bg-teal-400 text-stone-900 border-teal-400"
+                  ? "bg-accent text-[#170D0B] border-accent"
                   : "border-stone-700 text-stone-300"
               }`}
             >
@@ -228,7 +228,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
       <div className="flex gap-2 mt-1">
         <button
           disabled={saving}
-          className="bg-teal-400 text-stone-900 rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50"
+          className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50"
         >
           {saving ? "Submitting…" : isResubmit ? "Resubmit for review" : "Submit for review"}
         </button>
@@ -285,14 +285,14 @@ function DocumentsForm({ session, venue, onSubmitted }) {
     }
   }
 
-  const fileCls = "text-sm text-stone-300 file:mr-3 file:rounded-full file:border-0 file:bg-teal-400 file:px-3 file:py-1.5 file:text-stone-900 file:text-xs file:font-semibold";
+  const fileCls = "text-sm text-stone-300 file:mr-3 file:rounded-full file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-[#170D0B] file:text-xs file:font-semibold";
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">
       <h2 className="text-white font-semibold text-lg">Submit your documents</h2>
       <p className="text-stone-400 text-xs -mt-1 mb-1">
         Step 2 of 2. GST is mandatory. Adding your Liquor License and FSSAI License makes your venue
-        eligible for a <span className="text-teal-400">Verified</span> badge.
+        eligible for a <span className="text-emerald-400">Verified</span> badge.
       </p>
 
       <Field label="GST number *">
@@ -311,7 +311,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
       {error && <p className="text-rose-400 text-sm">{error}</p>}
       <button
         disabled={saving}
-        className="bg-teal-400 text-stone-900 rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50 mt-1 self-start"
+        className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50 mt-1 self-start"
       >
         {saving ? "Uploading…" : "Submit documents"}
       </button>
@@ -330,12 +330,12 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
   const hasDocs = !!venue?.gst_no;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white px-6 py-10">
+    <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white px-6 py-10">
       <div className="max-w-md mx-auto w-full">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-baseline gap-2">
             <span className="font-black text-2xl">Paxo</span>
-            <span className="text-xs text-teal-400 uppercase tracking-wide">partner</span>
+            <span className="text-xs text-accent font-medium">Partner</span>
           </div>
           <button onClick={onLogout} className="text-xs text-stone-400 hover:text-stone-200">
             Log out
@@ -343,7 +343,7 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
         </div>
 
         <div className="mb-6">
-          <p className="text-xs uppercase tracking-wide text-stone-500 mb-1">Venue status</p>
+          <p className="text-xs font-medium text-stone-500 mb-1">Venue status</p>
           <h1 className="text-2xl font-bold">{venue?.name}</h1>
           <span
             className={`inline-block mt-2 text-xs px-2.5 py-1 rounded-full ${
@@ -411,7 +411,7 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
             </div>
             <button
               onClick={() => setResubmitting(true)}
-              className="self-start bg-teal-400 text-stone-900 rounded-full px-4 py-2 text-sm font-semibold"
+              className="self-start bg-accent text-[#170D0B] rounded-full px-4 py-2 text-sm font-semibold"
             >
               Edit details & resubmit
             </button>

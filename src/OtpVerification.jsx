@@ -113,7 +113,7 @@ export default function OtpVerification({ email, onVerified, onBack }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
+    <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
       <div className="max-w-sm mx-auto w-full">
         <button className="text-sm text-stone-400 mb-6" onClick={onBack}>
           ← Back
@@ -135,7 +135,7 @@ export default function OtpVerification({ email, onVerified, onBack }) {
                 value={d}
                 onChange={(e) => setDigit(i, e.target.value)}
                 onKeyDown={(e) => onKeyDown(i, e)}
-                className="w-11 h-14 text-center text-xl font-semibold bg-stone-900 border border-teal-900 rounded-xl text-white focus:outline-none focus:border-teal-500"
+                className="w-11 h-14 text-center text-xl font-semibold bg-stone-900 border border-white/10 rounded-xl text-white focus:outline-none focus:border-accent"
               />
             ))}
           </div>
@@ -145,7 +145,7 @@ export default function OtpVerification({ email, onVerified, onBack }) {
           <button
             type="submit"
             disabled={!complete || verifying}
-            className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+            className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
           >
             {verifying ? "Verifying…" : "Verify"}
           </button>
@@ -156,7 +156,7 @@ export default function OtpVerification({ email, onVerified, onBack }) {
           {cooldown > 0 ? (
             <span className="text-stone-500">Resend in {cooldown}s</span>
           ) : (
-            <button className="text-teal-400 font-medium" onClick={resend} disabled={resending}>
+            <button className="text-accent font-medium" onClick={resend} disabled={resending}>
               {resending ? "Sending…" : "Resend code"}
             </button>
           )}

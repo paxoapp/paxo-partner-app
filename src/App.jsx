@@ -1168,13 +1168,13 @@ export default function App() {
 
   if (screen === "auth") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
         <div className="max-w-sm mx-auto w-full">
-          <h1 className="uppercase font-black leading-[0.95] tracking-tight mb-8">
+          <h1 className="font-bold leading-[1.05] tracking-tight mb-8">
             <span className="block text-4xl">
-              <span className="text-white">Paxo</span> <span className="text-teal-400">partner</span>
+              <span className="text-white">Paxo</span> <span className="text-accent">Partner</span>
             </span>
-            <span className="block text-2xl text-stone-300 normal-case font-medium mt-1">
+            <span className="block text-xl text-stone-300 font-medium mt-2">
               Manage your venue's bookings
             </span>
           </h1>
@@ -1204,7 +1204,7 @@ export default function App() {
               type="email"
               required
               placeholder="Enter email address"
-              className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
               value={authEmail}
               onChange={(e) => setAuthEmail(e.target.value)}
             />
@@ -1213,7 +1213,7 @@ export default function App() {
               required
               minLength={6}
               placeholder="Password"
-              className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
               value={authPassword}
               onChange={(e) => setAuthPassword(e.target.value)}
             />
@@ -1221,7 +1221,7 @@ export default function App() {
             {authMode === "login" && (
               <button
                 type="button"
-                className="text-teal-400 text-xs text-right -mt-1"
+                className="text-accent text-xs text-right -mt-1"
                 onClick={() => {
                   setResetError("");
                   setResetStep("request");
@@ -1233,7 +1233,7 @@ export default function App() {
             )}
             <button
               disabled={authLoading}
-              className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50 mt-1"
+              className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50 mt-1"
             >
               {authLoading ? "Please wait…" : authMode === "login" ? "Sign in" : "Create partner account"}
             </button>
@@ -1242,7 +1242,7 @@ export default function App() {
           <p className="text-center text-stone-500 text-sm mt-6">
             {authMode === "login" ? "New venue partner?" : "Already onboarded?"}{" "}
             <button
-              className="text-teal-400 font-medium"
+              className="text-accent font-medium"
               onClick={() => {
                 setAuthMode(authMode === "login" ? "signup" : "login");
                 setAuthError("");
@@ -1271,7 +1271,7 @@ export default function App() {
 
   if (screen === "forgot") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
         <div className="max-w-sm mx-auto w-full">
           <button className="text-sm text-stone-400 mb-6" onClick={() => setScreen("auth")}>
             ← Back to sign in
@@ -1284,7 +1284,7 @@ export default function App() {
           <div className="flex gap-2 mb-6">
             <button
               className={`flex-1 rounded-full py-2 text-sm font-medium ${
-                resetMethod === "email" ? "bg-teal-400 text-stone-900" : "border border-stone-700 text-stone-300"
+                resetMethod === "email" ? "bg-accent text-[#170D0B]" : "border border-stone-700 text-stone-300"
               }`}
               onClick={() => { setResetMethod("email"); setResetStep("request"); setResetError(""); }}
             >
@@ -1292,7 +1292,7 @@ export default function App() {
             </button>
             <button
               className={`flex-1 rounded-full py-2 text-sm font-medium ${
-                resetMethod === "phone" ? "bg-teal-400 text-stone-900" : "border border-stone-700 text-stone-300"
+                resetMethod === "phone" ? "bg-accent text-[#170D0B]" : "border border-stone-700 text-stone-300"
               }`}
               onClick={() => { setResetMethod("phone"); setResetStep("request"); setResetError(""); }}
             >
@@ -1306,14 +1306,14 @@ export default function App() {
                 type="email"
                 required
                 placeholder="Enter email address"
-                className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+                className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
               />
               {resetError && <p className="text-rose-400 text-sm px-1">{resetError}</p>}
               <button
                 disabled={resetLoading}
-                className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+                className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
               >
                 {resetLoading ? "Sending…" : "Send reset link"}
               </button>
@@ -1333,14 +1333,14 @@ export default function App() {
                 type="tel"
                 required
                 placeholder="+91 98765 43210"
-                className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+                className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
                 value={resetPhone}
                 onChange={(e) => setResetPhone(e.target.value)}
               />
               {resetError && <p className="text-rose-400 text-sm px-1">{resetError}</p>}
               <button
                 disabled={resetLoading}
-                className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+                className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
               >
                 {resetLoading ? "Sending…" : "Send code"}
               </button>
@@ -1354,7 +1354,7 @@ export default function App() {
                 type="text"
                 required
                 placeholder="6-digit code"
-                className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+                className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
                 value={resetOtp}
                 onChange={(e) => setResetOtp(e.target.value)}
               />
@@ -1363,14 +1363,14 @@ export default function App() {
                 required
                 minLength={6}
                 placeholder="New password"
-                className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+                className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
                 value={resetNewPassword}
                 onChange={(e) => setResetNewPassword(e.target.value)}
               />
               {resetError && <p className="text-rose-400 text-sm px-1">{resetError}</p>}
               <button
                 disabled={resetLoading}
-                className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+                className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
               >
                 {resetLoading ? "Resetting…" : "Reset password"}
               </button>
@@ -1383,7 +1383,7 @@ export default function App() {
 
   if (screen === "setNewPassword") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
         <div className="max-w-sm mx-auto w-full">
           <h1 className="font-black text-3xl mb-1">Set a new password</h1>
           <p className="text-stone-400 text-sm mb-6">Choose a new password for your account.</p>
@@ -1393,7 +1393,7 @@ export default function App() {
               required
               minLength={6}
               placeholder="New password"
-              className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -1402,14 +1402,14 @@ export default function App() {
               required
               minLength={6}
               placeholder="Confirm new password"
-              className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-teal-600"
+              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent"
               value={newPasswordConfirm}
               onChange={(e) => setNewPasswordConfirm(e.target.value)}
             />
             {newPasswordError && <p className="text-rose-400 text-sm px-1">{newPasswordError}</p>}
             <button
               disabled={newPasswordLoading}
-              className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+              className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
             >
               {newPasswordLoading ? "Saving…" : "Save new password"}
             </button>
@@ -1421,7 +1421,7 @@ export default function App() {
 
   if (screen === "claimVenue") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
         <div className="max-w-sm mx-auto w-full">
           <h1 className="font-black text-3xl mb-1">Which venue do you manage?</h1>
           <p className="text-stone-400 text-sm mb-6">
@@ -1431,7 +1431,7 @@ export default function App() {
           <form onSubmit={claimVenue} className="flex flex-col gap-3">
             <select
               required
-              className="bg-stone-900 border border-teal-900 rounded-full px-5 py-3.5 text-sm text-white focus:outline-none focus:border-teal-600"
+              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm text-white focus:outline-none focus:border-accent"
               value={claimVenuePending}
               onChange={(e) => setClaimVenuePending(e.target.value)}
             >
@@ -1443,7 +1443,7 @@ export default function App() {
             {authError && <p className="text-rose-400 text-sm px-1">{authError}</p>}
             <button
               disabled={authLoading}
-              className="bg-teal-400 text-stone-900 rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+              className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
             >
               {authLoading ? "Saving…" : "Continue"}
             </button>
@@ -1459,12 +1459,12 @@ export default function App() {
 
   if (session && (screen === "submitVenue" || !partnerVenue)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-950 via-stone-950 to-stone-900 text-white px-6 py-10">
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white px-6 py-10">
         <div className="max-w-md mx-auto w-full">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-baseline gap-2">
               <span className="font-black text-2xl">Paxo</span>
-              <span className="text-xs text-teal-400 uppercase tracking-wide">partner</span>
+              <span className="text-xs text-accent font-medium">Partner</span>
             </div>
             <button onClick={logOut} className="text-xs text-stone-400 hover:text-stone-200">Log out</button>
           </div>
@@ -1510,60 +1510,60 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
       <header className="bg-slate-900 text-white">
-        <div className="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between">
-          <div className="flex items-baseline gap-2">
-            <span className="font-serif text-2xl tracking-tight">Paxo</span>
-            <span className="text-xs text-teal-400">partner</span>
+        <div className="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-baseline gap-2 shrink-0">
+            <span className="font-display text-2xl tracking-tight">Paxo</span>
+            <span className="text-xs text-accent">partner</span>
           </div>
-          <div className="flex items-center gap-5 text-sm relative">
-            <nav className="hidden sm:flex items-center gap-5">
+          <div className="flex items-center gap-4 text-sm relative">
+            <nav className="hidden sm:flex items-center gap-4 whitespace-nowrap">
               <button
-                className={`hover:text-teal-400 ${screen === "dashboard" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "dashboard" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("dashboard")}
               >
                 Requests
               </button>
               <button
-                className={`hover:text-teal-400 ${screen === "upcoming" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "upcoming" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("upcoming")}
               >
                 Upcoming Events
               </button>
               <button
-                className={`hover:text-teal-400 ${screen === "menu" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "menu" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("menu")}
               >
                 Menu Management
               </button>
               <button
-                className={`hover:text-teal-400 ${screen === "payments" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "payments" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("payments")}
               >
                 Payments
               </button>
               <button
-                className={`hover:text-teal-400 ${screen === "packages" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "packages" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("packages")}
               >
                 Packages
               </button>
               <button
-                className={`hover:text-teal-400 ${screen === "profile" ? "text-teal-400" : "text-slate-300"}`}
+                className={`hover:text-accent ${screen === "profile" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("profile")}
               >
                 Profile
               </button>
             </nav>
-            <span className="text-slate-300 hidden sm:inline-flex items-center gap-1.5">
+            <span className="text-slate-300 hidden lg:inline-flex items-center gap-1.5 shrink-0">
               {partnerVenue?.venues?.name}
               {partnerVenue?.venues?.is_verified && (
-                <span className="text-[10px] font-semibold uppercase tracking-wide bg-teal-400/20 text-teal-300 px-1.5 py-0.5 rounded-full">
+                <span className="text-[11px] font-semibold bg-emerald-400/20 text-emerald-300 px-1.5 py-0.5 rounded-full">
                   ✓ Verified
                 </span>
               )}
             </span>
             <button
-              className="w-8 h-8 rounded-full bg-teal-400 text-stone-900 font-semibold flex items-center justify-center text-xs"
+              className="w-8 h-8 rounded-full bg-accent text-[#170D0B] font-semibold flex items-center justify-center text-xs"
               onClick={() => setMenuOpen((v) => !v)}
             >
               {(session.email || "?").slice(0, 1).toUpperCase()}
@@ -1593,7 +1593,7 @@ export default function App() {
         <style>{`@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
         {screen === "dashboard" && (
           <>
-        <p className="text-teal-600 text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>
+        <p className="text-accent-ink text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>
         <h1 className="font-serif text-3xl mb-1">Booking requests</h1>
         <p className="text-stone-500 text-sm mb-6">{partnerVenue?.venues?.name}</p>
 
@@ -1642,16 +1642,17 @@ export default function App() {
           {filtered.map((b) => {
             const mins = b.status === "pending" ? minutesLeft(b.response_deadline) : null;
             return (
-              <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="font-medium">{b.contact_name}</p>
-                    <p className="text-sm text-stone-500">
-                      {b.venue_packages?.name} · {b.event_date} at {b.event_time} · {b.headcount} guests
+              <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-stone-900">{b.contact_name}</p>
+                    <p className="text-sm text-stone-600 mt-0.5">
+                      {b.venue_packages?.name} · {b.headcount} guests
                     </p>
-                    <p className="text-xs text-stone-400 font-mono mt-1">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
+                    <p className="text-sm text-stone-600">{b.event_date} at {b.event_time}</p>
+                    <p className="text-xs text-stone-400 font-mono mt-1.5">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
                   </div>
-                  <span className={`text-xs font-medium px-2 py-1 rounded ${statusColor[b.status]}`}>
+                  <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusColor[b.status]}`}>
                     {b.status.replace("_", " ")}
                   </span>
                 </div>
@@ -1896,19 +1897,22 @@ export default function App() {
                   const eventPassed = new Date(`${b.event_date}T${b.event_time}`).getTime() < Date.now();
                   const confirmed = b.status === "confirmed";
                   return (
-                    <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <p className="font-medium">{b.contact_name}</p>
-                          <p className="text-sm text-stone-500">
-                            {b.venue_packages?.name} · {b.event_date} at {b.event_time} · {b.headcount} guests
+                    <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold text-stone-900">{b.contact_name}</p>
+                          <p className="text-sm text-stone-600 mt-0.5">
+                            {b.venue_packages?.name} · {b.headcount} guests
                           </p>
-                          <p className="text-xs text-stone-400 font-mono mt-1">
+                          <p className="text-sm text-stone-600">
+                            {b.event_date} at {b.event_time}
+                          </p>
+                          <p className="text-xs text-stone-400 font-mono mt-1.5">
                             {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
                           </p>
                         </div>
                         <span
-                          className={`text-xs font-medium px-2 py-1 rounded ${
+                          className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${
                             confirmed ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
                           }`}
                         >
@@ -1917,7 +1921,7 @@ export default function App() {
                       </div>
 
                       {confirmed && (
-                        <div className="border border-stone-200 rounded-lg p-3 mb-3 bg-stone-50">
+                        <div className="border border-stone-200 rounded-lg p-3 mb-4 bg-stone-50">
                           {b.event_started_at ? (
                             <p className="text-sm font-medium text-emerald-700">
                               ✓ Checked in at{" "}
@@ -1956,7 +1960,7 @@ export default function App() {
                                   type="button"
                                   disabled={checkinBusyId === b.id}
                                   onClick={() => confirmEventStarted(b)}
-                                  className="bg-teal-500 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                                  className="bg-accent text-[#170D0B] text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
                                 >
                                   {checkinBusyId === b.id ? "Confirming…" : "Confirm Event Started"}
                                 </button>
@@ -1970,8 +1974,8 @@ export default function App() {
                       )}
 
                       {confirmed && (
-                        <div className="border border-stone-200 rounded-lg p-3 mb-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-1">
+                        <div className="border border-stone-200 rounded-lg p-3 mb-4">
+                          <p className="text-sm font-semibold text-stone-500 mb-1.5">
                             Finalized menu
                           </p>
                           {b.menu_finalized_at ? (
@@ -2002,7 +2006,7 @@ export default function App() {
                         eventPassed ? (
                           <button
                             disabled={actionLoading === b.id}
-                            className="bg-emerald-600 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                            className="bg-accent text-[#170D0B] text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 hover:brightness-105 transition"
                             onClick={() => markCompleted(b.id)}
                           >
                             {actionLoading === b.id ? "Working…" : "Mark as Completed"}
@@ -2075,7 +2079,7 @@ export default function App() {
                   <option key={k} value={k}>{label}</option>
                 ))}
               </select>
-              <button className="bg-teal-500 text-white text-sm font-medium px-4 py-2 rounded">Add category</button>
+              <button className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded">Add category</button>
             </form>
 
             {menuError && !menuErrorCat && <p className="text-rose-600 text-sm mb-3">{menuError}</p>}
@@ -2127,7 +2131,7 @@ export default function App() {
                               {item.is_available ? "Mark unavailable" : "Mark available"}
                             </button>
                             <button
-                              className="text-xs text-teal-600"
+                              className="text-xs text-accent-ink"
                               onClick={() => (editingItemId === item.id ? setEditingItemId(null) : startEditItemDesc(item))}
                             >
                               {editingItemId === item.id ? "Cancel" : item.description ? "Edit" : "Add description"}
@@ -2186,7 +2190,7 @@ export default function App() {
                         type="button"
                         disabled={pickCount === 0 || addingSuggested === cat.id}
                         onClick={() => addSuggestedItems(cat.id)}
-                        className="bg-teal-500 text-white text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                        className="bg-accent text-[#170D0B] text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
                       >
                         {addingSuggested === cat.id
                           ? "Adding…"
@@ -2286,7 +2290,7 @@ export default function App() {
             {!showPackageForm && (
               <button
                 type="button"
-                className="bg-teal-500 text-white text-sm font-medium px-4 py-2 rounded mb-6"
+                className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded mb-6"
                 onClick={openNewPackageForm}
               >
                 + Add package
@@ -2522,7 +2526,7 @@ export default function App() {
                                   key={n}
                                   className={`w-8 h-8 rounded-full border text-sm font-medium ${
                                     q.count === n
-                                      ? "bg-teal-500 text-white border-teal-500"
+                                      ? "bg-accent text-[#170D0B] border-accent"
                                       : "border-stone-300 text-stone-600"
                                   }`}
                                   onClick={() => setQuota(kind, { count: n })}
@@ -2539,7 +2543,7 @@ export default function App() {
                                     You haven't added any {label} items yet —{" "}
                                     <button
                                       type="button"
-                                      className="underline text-teal-700"
+                                      className="underline text-accent-ink"
                                       onClick={() => setScreen("menu")}
                                     >
                                       add them in Menu Management
@@ -2631,7 +2635,7 @@ export default function App() {
                 <div className="flex gap-2">
                   <button
                     disabled={packageSaving}
-                    className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50"
+                    className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50"
                   >
                     {packageSaving ? "Saving…" : "Save package"}
                   </button>
@@ -2651,7 +2655,7 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <p className="font-medium">{p.name}</p>
                         <span
-                          className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                             p.is_published
                               ? "bg-emerald-100 text-emerald-700"
                               : "bg-stone-200 text-stone-500"
@@ -2673,7 +2677,7 @@ export default function App() {
                       >
                         {p.is_published ? "Unpublish" : "Publish"}
                       </button>
-                      <button type="button" className="text-xs text-teal-600" onClick={() => openEditPackageForm(p)}>
+                      <button type="button" className="text-xs text-accent-ink" onClick={() => openEditPackageForm(p)}>
                         Edit
                       </button>
                       <button type="button" className="text-xs text-rose-600" onClick={() => deletePackage(p.id)}>
@@ -2766,7 +2770,7 @@ export default function App() {
               {profileSaved && <p className="text-emerald-600 text-sm">Profile saved.</p>}
               <button
                 disabled={profileLoading}
-                className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+                className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {profileLoading ? "Saving…" : "Save changes"}
               </button>
@@ -2796,7 +2800,7 @@ export default function App() {
               )}
               <button
                 disabled={venueTermsSaving}
-                className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+                className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {venueTermsSaving ? "Saving…" : "Save terms"}
               </button>
@@ -2832,7 +2836,7 @@ export default function App() {
               {settingsSaved && <p className="text-emerald-600 text-sm">Password updated.</p>}
               <button
                 disabled={settingsLoading}
-                className="bg-teal-500 text-white font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+                className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {settingsLoading ? "Updating…" : "Update password"}
               </button>
@@ -2880,8 +2884,8 @@ export default function App() {
               className="flex-1 flex flex-col items-center gap-1 py-2.5"
               onClick={() => { setScreen(key); setMenuOpen(false); }}
             >
-              <Icon size={22} strokeWidth={active ? 2.4 : 1.8} className={active ? "text-teal-600" : "text-stone-400"} />
-              <span className={`text-[10px] leading-tight text-center ${active ? "text-teal-600 font-medium" : "text-stone-400"}`}>{label}</span>
+              <Icon size={22} strokeWidth={active ? 2.4 : 1.8} className={active ? "text-accent-ink" : "text-stone-400"} />
+              <span className={`text-[10px] leading-tight text-center ${active ? "text-accent-ink font-medium" : "text-stone-400"}`}>{label}</span>
             </button>
           );
         })}

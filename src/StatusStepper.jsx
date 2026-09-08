@@ -29,8 +29,8 @@ function Step({ n, label, state, last, dark }) {
       line: "bg-emerald-500",
     },
     current: {
-      ring: dark ? "bg-teal-400 text-stone-900 border-teal-400" : "bg-teal-600 text-white border-teal-600",
-      text: dark ? "text-teal-300" : "text-teal-700",
+      ring: "bg-[#F5A623] text-[#170D0B] border-[#F5A623]",
+      text: dark ? "text-[#F5A623]" : "text-[#9A5F0F]",
       line: dark ? "bg-stone-700" : "bg-stone-300",
     },
     pending: {

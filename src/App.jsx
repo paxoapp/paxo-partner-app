@@ -2808,8 +2808,8 @@ export default function App() {
             </form>
 
             <div className="mt-6 flex items-center gap-3">
-              <span className="text-xs text-stone-400">Paxo official channels</span>
-              <SocialLinks linkClass="text-stone-400 hover:text-accent-ink" />
+              <span className="text-xs text-stone-500">Paxo official channels</span>
+              <SocialLinks linkClass="text-accent-ink hover:opacity-70" />
             </div>
           </div>
         )}

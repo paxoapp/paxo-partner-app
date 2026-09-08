@@ -31,7 +31,7 @@ export default function SocialLinks({ className = "", linkClass = "" }) {
           aria-label={s.label}
           className={`transition-colors ${linkClass}`}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="w-4 h-4">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="w-5 h-5">
             <path d={s.d} />
           </svg>
         </a>

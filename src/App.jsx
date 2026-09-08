@@ -1783,7 +1783,17 @@ export default function App() {
                 )}
 
                 {b.status === "rejected" && b.rejection_reason && (
-                  <p className="text-xs text-stone-400">Reason: {b.rejection_reason}</p>
+                  b.rejection_reason.startsWith("Customer declined due to disclosed") ? (
+                    <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 text-xs">
+                      <p className="font-semibold text-amber-800">Customer declined the disclosed conflict</p>
+                      <p className="text-stone-600 mt-0.5">
+                        They chose not to proceed after seeing your venue-conflict note. {b.event_date} has
+                        freed back up — you can reconsider another request for that date.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-stone-400">Reason: {b.rejection_reason}</p>
+                  )
                 )}
 
                 {b.status === "cancelled" && (

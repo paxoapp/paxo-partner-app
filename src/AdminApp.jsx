@@ -195,6 +195,43 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   const [error, setError] = useState("");
   const [viewingDoc, setViewingDoc] = useState(null);
 
+  const [addons, setAddons] = useState([]);
+  const [addonsLoading, setAddonsLoading] = useState(true);
+  const [addonBusyId, setAddonBusyId] = useState(null);
+  const [addonError, setAddonError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setAddonsLoading(true);
+    sb(`/rest/v1/venue_addons?venue_id=eq.${venue.id}&select=*&order=created_at.asc`, {
+      token: session.token,
+    })
+      .then((rows) => !cancelled && setAddons(rows))
+      .catch((e) => !cancelled && setAddonError(e.message))
+      .finally(() => !cancelled && setAddonsLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [venue.id, session.token]);
+
+  async function toggleAddon(addon) {
+    setAddonError("");
+    setAddonBusyId(addon.id);
+    try {
+      const [row] = await sb(`/rest/v1/venue_addons?id=eq.${addon.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: { is_active: !addon.is_active },
+      });
+      setAddons((rows) => rows.map((r) => (r.id === row.id ? row : r)));
+    } catch (e) {
+      setAddonError(e.message);
+    } finally {
+      setAddonBusyId(null);
+    }
+  }
+
   async function patch(body, action, note) {
     setBusy(true);
     setError("");
@@ -302,6 +339,45 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
           <p className="whitespace-pre-wrap">{venue.rejection_note || "—"}</p>
         </div>
       )}
+
+      <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Add-ons offered</h3>
+        <p className="text-xs text-stone-500 mb-2">
+          Managed by the partner. Deactivate here to hide anything inappropriate or duplicate from customers.
+        </p>
+        {addonError && <p className="text-rose-600 text-xs mb-2">{addonError}</p>}
+        {addonsLoading ? (
+          <p className="text-stone-400 text-sm">Loading…</p>
+        ) : addons.length === 0 ? (
+          <p className="text-stone-400 text-sm">This venue hasn't added any add-ons yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {addons.map((a) => (
+              <div key={a.id} className="flex items-start justify-between gap-3 py-1.5 border-b border-stone-100 last:border-b-0 text-sm">
+                <div>
+                  <span className="font-medium">{a.name}</span>
+                  <span
+                    className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                      a.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
+                    }`}
+                  >
+                    {a.is_active ? "Visible" : "Hidden"}
+                  </span>
+                  {a.description && <p className="text-stone-500 text-xs mt-0.5">{a.description}</p>}
+                </div>
+                <button
+                  type="button"
+                  disabled={addonBusyId === a.id}
+                  onClick={() => toggleAddon(a)}
+                  className={`text-xs shrink-0 ${a.is_active ? "text-rose-600" : "text-emerald-600 font-medium"} disabled:opacity-50`}
+                >
+                  {addonBusyId === a.id ? "Saving…" : a.is_active ? "Deactivate" : "Activate"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
 
@@ -451,6 +527,15 @@ function TransactionReceipt({ session, payment: p, onBack }) {
           <Row label="DJ" value={b.venue_packages?.includes_dj ? "Included" : "Not included"} />
           {b.venue_packages?.dj_notes && <Row label="DJ notes" value={b.venue_packages.dj_notes} />}
           <Row label="Total booking amount" value={inr(b.total_amount)} />
+          {(b.booking_addon_requests || []).some((a) => a.status === "confirmed") && (
+            <Row
+              label="Add-ons (confirmed)"
+              value={b.booking_addon_requests
+                .filter((a) => a.status === "confirmed")
+                .map((a) => `${a.addon_name} (${inr(a.price)})`)
+                .join(", ")}
+            />
+          )}
         </div>
 
         <div className="mb-4">
@@ -527,7 +612,8 @@ function Settlements({ session }) {
         "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
           "partner_payout_amount,paid_at,settlement_status,settled_at,payment_type," +
           "bookings(id,booking_ref,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
-          "contact_email,venues(id,name),venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes))" +
+          "contact_email,venues(id,name),venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
+          "booking_addon_requests(addon_name,status,price))" +
           "&order=paid_at.desc.nullslast",
         { token: session.token }
       );
@@ -827,6 +913,25 @@ function RequestDetail({ booking: b, onBack }) {
         </div>
       )}
 
+      {(b.booking_addon_requests || []).length > 0 && (
+        <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+          <h3 className="font-medium text-sm mb-2">Add-ons requested</h3>
+          {b.booking_addon_requests.map((a) => (
+            <Row
+              key={a.id}
+              label={a.addon_name}
+              value={
+                a.status === "confirmed"
+                  ? `Confirmed — ${inr(a.price)}`
+                  : a.status === "declined"
+                  ? "Declined"
+                  : "Requested — pending review"
+              }
+            />
+          ))}
+        </div>
+      )}
+
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Payment</h3>
         <Row label="Total amount" value={inr(b.total_amount)} />
@@ -857,7 +962,9 @@ function Requests({ session }) {
           "response_deadline,is_last_minute,total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
           "contact_email,rejection_reason,cancellation_reason,cancelled_at,menu_finalized_at," +
           "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
-          "special_request,venues(name),venue_packages(name)&order=requested_at.desc",
+          "special_request,venues(name),venue_packages(name)," +
+          "booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)" +
+          "&order=requested_at.desc",
         { token: session.token }
       );
       setRows(data);

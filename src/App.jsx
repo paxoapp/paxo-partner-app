@@ -243,6 +243,17 @@ export default function App() {
   const [packageError, setPackageError] = useState("");
   const [packageSaving, setPackageSaving] = useState(false);
 
+  const [addons, setAddons] = useState([]);
+  const [addonsLoading, setAddonsLoading] = useState(false);
+  const [showAddonForm, setShowAddonForm] = useState(false);
+  const [editingAddonId, setEditingAddonId] = useState(null);
+  const [addonForm, setAddonForm] = useState(null);
+  const [addonError, setAddonError] = useState("");
+  const [addonSaving, setAddonSaving] = useState(false);
+  const [addonReviewBusy, setAddonReviewBusy] = useState(null);
+  const [addonReviewPrice, setAddonReviewPrice] = useState({});
+  const [addonReviewError, setAddonReviewError] = useState({});
+
   const CATEGORY_KINDS = [
     ["starter_veg", "Starters (veg)"],
     ["starter_non_veg", "Starters (non-veg)"],
@@ -567,7 +578,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,booking_menu_selections(menu_item_id)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)`,
           { token }
         ),
       ]);
@@ -601,6 +612,21 @@ export default function App() {
       console.error(e);
     } finally {
       setPackagesLoading(false);
+    }
+  }, []);
+
+  const loadAddons = useCallback(async (token, venueId) => {
+    setAddonsLoading(true);
+    try {
+      const data = await sb(
+        `/rest/v1/venue_addons?venue_id=eq.${venueId}&select=*&order=created_at.asc`,
+        { token }
+      );
+      setAddons(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAddonsLoading(false);
     }
   }, []);
 
@@ -645,10 +671,11 @@ export default function App() {
   useEffect(() => {
     if (screen === "packages" && session && partnerVenue?.venue_id) {
       loadPackages(session.token, partnerVenue.venue_id);
+      loadAddons(session.token, partnerVenue.venue_id);
       // Menu items back the package builder's brand-pool pickers.
       loadMenu(session.token, partnerVenue.venue_id);
     }
-  }, [screen, session, partnerVenue, loadPackages, loadMenu]);
+  }, [screen, session, partnerVenue, loadPackages, loadAddons, loadMenu]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
@@ -1257,6 +1284,144 @@ export default function App() {
     }
   }
 
+  const ADDON_SUGGESTIONS = [
+    { name: "Extra Mic", description: "An additional wireless/handheld microphone for speeches, performances or announcements." },
+    { name: "Photographer", description: "A professional event photographer to capture your celebration." },
+    { name: "Videographer", description: "Professional event videography with edited highlights." },
+    { name: "Projector & Screen", description: "A projector and screen setup for presentations, videos or slideshows." },
+    { name: "Decor Team", description: "Additional theme-based decoration and styling for your event space." },
+    { name: "Sufi Singer", description: "A live Sufi vocalist performance to elevate your event's ambience." },
+    { name: "Music Band", description: "A live music band performance for entertainment." },
+    { name: "Anchor / Host", description: "A professional event anchor to host and manage the flow of the evening." },
+  ];
+
+  function openNewAddonForm() {
+    setAddonForm({ name: "", description: "", is_active: true });
+    setEditingAddonId(null);
+    setAddonError("");
+    setShowAddonForm(true);
+  }
+
+  function openEditAddonForm(addon) {
+    setAddonForm({
+      name: addon.name || "",
+      description: addon.description || "",
+      is_active: addon.is_active ?? true,
+    });
+    setEditingAddonId(addon.id);
+    setAddonError("");
+    setShowAddonForm(true);
+  }
+
+  function closeAddonForm() {
+    setShowAddonForm(false);
+    setAddonError("");
+  }
+
+  function quickAddSuggestion(s) {
+    setAddonForm({ name: s.name, description: s.description, is_active: true });
+    setEditingAddonId(null);
+    setAddonError("");
+    setShowAddonForm(true);
+  }
+
+  async function saveAddon(e) {
+    e.preventDefault();
+    setAddonError("");
+    if (!addonForm.name.trim()) {
+      setAddonError("Enter an add-on name.");
+      return;
+    }
+    setAddonSaving(true);
+    try {
+      const body = {
+        venue_id: partnerVenue.venue_id,
+        name: addonForm.name.trim(),
+        description: addonForm.description.trim() || null,
+        is_active: !!addonForm.is_active,
+      };
+      if (editingAddonId) {
+        await sb(`/rest/v1/venue_addons?id=eq.${editingAddonId}`, {
+          method: "PATCH",
+          token: session.token,
+          prefer: "return=minimal",
+          body,
+        });
+      } else {
+        await sb("/rest/v1/venue_addons", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=minimal",
+          body,
+        });
+      }
+      setShowAddonForm(false);
+      await loadAddons(session.token, partnerVenue.venue_id);
+    } catch (err) {
+      setAddonError(err.message);
+    } finally {
+      setAddonSaving(false);
+    }
+  }
+
+  async function toggleAddonActive(addon) {
+    setAddonError("");
+    try {
+      await sb(`/rest/v1/venue_addons?id=eq.${addon.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { is_active: !addon.is_active },
+      });
+      await loadAddons(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setAddonError(e.message);
+    }
+  }
+
+  async function deleteAddon(id) {
+    setAddonError("");
+    try {
+      await sb(`/rest/v1/venue_addons?id=eq.${id}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+      await loadAddons(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setAddonError(e.message);
+    }
+  }
+
+  // Booking-level add-on review: partner confirms (with a price) or declines
+  // a customer's requested add-on, independent of the booking's own status.
+  async function reviewAddonRequest(addonRequestId, decision) {
+    setAddonReviewError((m) => ({ ...m, [addonRequestId]: "" }));
+    const body = { status: decision, reviewed_at: new Date().toISOString() };
+    if (decision === "confirmed") {
+      const price = parseFloat(addonReviewPrice[addonRequestId]);
+      if (!price || price <= 0) {
+        setAddonReviewError((m) => ({ ...m, [addonRequestId]: "Enter a valid price before confirming." }));
+        return;
+      }
+      body.price = price;
+    }
+    setAddonReviewBusy(addonRequestId);
+    try {
+      await sb(`/rest/v1/booking_addon_requests?id=eq.${addonRequestId}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body,
+      });
+      await loadBookings(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setAddonReviewError((m) => ({ ...m, [addonRequestId]: e.message }));
+    } finally {
+      setAddonReviewBusy(null);
+    }
+  }
+
   if (screen === "auth") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
@@ -1799,6 +1964,72 @@ export default function App() {
                   </span>
                   {b.is_last_minute && <span className="text-rose-600 font-medium">Non-cancellable if accepted</span>}
                 </div>
+
+                {Array.isArray(b.booking_addon_requests) && b.booking_addon_requests.length > 0 && (
+                  <div className="border border-stone-200 rounded-lg p-3 mb-3">
+                    <p className="text-xs font-semibold text-stone-500 mb-2">Add-ons requested</p>
+                    <div className="flex flex-col gap-2">
+                      {b.booking_addon_requests.map((a) => (
+                        <div key={a.id} className="border-t border-stone-100 first:border-t-0 pt-2 first:pt-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-stone-800">{a.addon_name}</p>
+                              {a.addon_description && (
+                                <p className="text-xs text-stone-500">{a.addon_description}</p>
+                              )}
+                            </div>
+                            {a.status === "confirmed" ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 shrink-0">
+                                Confirmed — {inr(a.price)}
+                              </span>
+                            ) : a.status === "declined" ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-stone-200 text-stone-500 shrink-0">
+                                Declined
+                              </span>
+                            ) : (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0">
+                                Requested
+                              </span>
+                            )}
+                          </div>
+                          {a.status === "requested" && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="Price ₹"
+                                className="border border-stone-300 rounded px-2 py-1 text-xs w-24"
+                                value={addonReviewPrice[a.id] || ""}
+                                onChange={(e) =>
+                                  setAddonReviewPrice((m) => ({ ...m, [a.id]: e.target.value }))
+                                }
+                              />
+                              <button
+                                type="button"
+                                disabled={addonReviewBusy === a.id}
+                                className="bg-emerald-600 text-white text-xs font-medium px-2.5 py-1 rounded disabled:opacity-50"
+                                onClick={() => reviewAddonRequest(a.id, "confirmed")}
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                disabled={addonReviewBusy === a.id}
+                                className="border border-stone-300 text-stone-600 text-xs font-medium px-2.5 py-1 rounded disabled:opacity-50"
+                                onClick={() => reviewAddonRequest(a.id, "declined")}
+                              >
+                                Not available
+                              </button>
+                            </div>
+                          )}
+                          {addonReviewError[a.id] && (
+                            <p className="text-rose-600 text-xs mt-1">{addonReviewError[a.id]}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {b.status === "pending" && (
                   <>
@@ -2896,6 +3127,136 @@ export default function App() {
               {!packagesLoading && packages.length === 0 && (
                 <p className="text-stone-400 text-sm">No packages yet — add one above to get started.</p>
               )}
+            </div>
+
+            <div className="mt-10 pt-8 border-t border-stone-200">
+              <h2 className="font-serif text-2xl mb-1">Add-Ons</h2>
+              <p className="text-stone-500 text-sm mb-4">
+                Extra items customers can request with their booking — an extra mic, photographer, decor
+                team, live music and similar. Requests are informational only; you review and confirm
+                each one (with a price) after the booking itself is finalized.
+              </p>
+
+              {!showAddonForm && (
+                <>
+                  <button
+                    type="button"
+                    className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded mb-3"
+                    onClick={openNewAddonForm}
+                  >
+                    + Add add-on
+                  </button>
+                  {addons.length === 0 && (
+                    <div className="mb-6">
+                      <p className="text-stone-400 text-xs mb-2">Quick add a common item:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {ADDON_SUGGESTIONS.map((s) => (
+                          <button
+                            key={s.name}
+                            type="button"
+                            className="text-xs border border-stone-300 text-stone-600 px-2.5 py-1 rounded-full hover:border-accent hover:text-accent-ink"
+                            onClick={() => quickAddSuggestion(s)}
+                          >
+                            + {s.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {addonError && !showAddonForm && <p className="text-rose-600 text-sm mb-3">{addonError}</p>}
+
+              {showAddonForm && addonForm && (
+                <form
+                  onSubmit={saveAddon}
+                  className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4 mb-6"
+                >
+                  <h3 className="font-medium">{editingAddonId ? "Edit add-on" : "New add-on"}</h3>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Name</label>
+                    <input
+                      type="text"
+                      required
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={addonForm.name}
+                      onChange={(e) => setAddonForm({ ...addonForm, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Explanation for customers</label>
+                    <textarea
+                      rows={2}
+                      placeholder="What this add-on includes"
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={addonForm.description}
+                      onChange={(e) => setAddonForm({ ...addonForm, description: e.target.value })}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={addonForm.is_active}
+                      onChange={(e) => setAddonForm({ ...addonForm, is_active: e.target.checked })}
+                    />
+                    Visible to customers
+                  </label>
+                  {addonError && <p className="text-rose-600 text-sm">{addonError}</p>}
+                  <div className="flex gap-3">
+                    <button
+                      disabled={addonSaving}
+                      className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded disabled:opacity-50"
+                    >
+                      {addonSaving ? "Saving…" : editingAddonId ? "Save changes" : "Add"}
+                    </button>
+                    <button type="button" className="text-sm text-stone-500" onClick={closeAddonForm}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="flex flex-col gap-3">
+                {addons.map((a) => (
+                  <div
+                    key={a.id}
+                    className="bg-white border border-stone-200 rounded-lg p-4 flex items-start justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{a.name}</p>
+                        <span
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                            a.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
+                          }`}
+                        >
+                          {a.is_active ? "Visible" : "Hidden"}
+                        </span>
+                      </div>
+                      {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
+                    </div>
+                    <div className="flex gap-3 shrink-0">
+                      <button
+                        type="button"
+                        className={`text-xs ${a.is_active ? "text-stone-500" : "text-emerald-600 font-medium"}`}
+                        onClick={() => toggleAddonActive(a)}
+                      >
+                        {a.is_active ? "Hide" : "Show"}
+                      </button>
+                      <button type="button" className="text-xs text-accent-ink" onClick={() => openEditAddonForm(a)}>
+                        Edit
+                      </button>
+                      <button type="button" className="text-xs text-rose-600" onClick={() => deleteAddon(a.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!addonsLoading && addons.length === 0 && (
+                  <p className="text-stone-400 text-sm">No add-ons yet — add one above so customers can request it.</p>
+                )}
+              </div>
             </div>
           </div>
         )}

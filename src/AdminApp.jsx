@@ -432,10 +432,24 @@ function TransactionReceipt({ session, payment: p, onBack }) {
         <div className="mb-4">
           <h3 className="font-medium text-sm mb-2">Booking</h3>
           <Row label="Venue" value={b.venues?.name} />
+          <Row label="Package" value={b.venue_packages?.name} />
           <Row label="Event date" value={fmtDate(b.event_date)} />
           <Row label="Customer" value={b.contact_name} />
           <Row label="Customer mobile" value={b.contact_mobile} />
           <Row label="Customer email" value={b.contact_email} />
+          {b.venue_packages?.price_per_head != null && (
+            <Row
+              label="Price per head"
+              value={
+                b.venue_packages.discount_percent > 0
+                  ? `${inr(b.venue_packages.price_per_head)} − ${b.venue_packages.discount_percent}% offer`
+                  : inr(b.venue_packages.price_per_head)
+              }
+            />
+          )}
+          <Row label="Guests" value={b.headcount} />
+          <Row label="DJ" value={b.venue_packages?.includes_dj ? "Included" : "Not included"} />
+          {b.venue_packages?.dj_notes && <Row label="DJ notes" value={b.venue_packages.dj_notes} />}
           <Row label="Total booking amount" value={inr(b.total_amount)} />
         </div>
 
@@ -512,8 +526,9 @@ function Settlements({ session }) {
       const data = await sb(
         "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
           "partner_payout_amount,paid_at,settlement_status,settled_at,payment_type," +
-          "bookings(id,booking_ref,event_date,total_amount,deposit_tier,contact_name,contact_mobile," +
-          "contact_email,venues(id,name))&order=paid_at.desc.nullslast",
+          "bookings(id,booking_ref,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
+          "contact_email,venues(id,name),venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes))" +
+          "&order=paid_at.desc.nullslast",
         { token: session.token }
       );
       setRows(data);

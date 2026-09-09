@@ -1031,6 +1031,9 @@ export default function App() {
       inclusions: "",
       includes_alcohol: true,
       gst_mode: "included",
+      includes_dj: false,
+      dj_notes: "",
+      discount_percent: 0,
       quotas: {
         ...Object.fromEntries(
           FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
@@ -1063,6 +1066,9 @@ export default function App() {
       inclusions: (pkg.inclusions || []).join("\n"),
       includes_alcohol: pkg.includes_alcohol ?? true,
       gst_mode: pkg.gst_mode === "excluded" ? "excluded" : "included",
+      includes_dj: pkg.includes_dj ?? false,
+      dj_notes: pkg.dj_notes || "",
+      discount_percent: pkg.discount_percent ?? 0,
       quotas,
       poolItemIds: (pkg.package_item_pool || []).map((r) => r.menu_item_id),
     });
@@ -1091,6 +1097,10 @@ export default function App() {
     const minGuests = parseInt(packageForm.min_headcount, 10);
     if (!minGuests || minGuests < 1) {
       setPackageError("Enter a valid minimum guest count.");
+      return;
+    }
+    if ((packageForm.dj_notes || "").length > 250) {
+      setPackageError("DJ details are limited to 250 characters — please shorten them.");
       return;
     }
 
@@ -1132,6 +1142,9 @@ export default function App() {
           .filter(Boolean),
         includes_alcohol: !!packageForm.includes_alcohol,
         gst_mode: packageForm.gst_mode === "excluded" ? "excluded" : "included",
+        includes_dj: !!packageForm.includes_dj,
+        dj_notes: (packageForm.dj_notes || "").trim() || null,
+        discount_percent: parseInt(packageForm.discount_percent, 10) || 0,
       };
 
       let packageId = editingPackageId;
@@ -2555,6 +2568,76 @@ export default function App() {
                   )}
                 </div>
 
+                <div>
+                  <label className="text-sm font-medium block mb-2">Does this package include a DJ?</label>
+                  <div className="flex gap-2">
+                    {[
+                      ["Yes", true],
+                      ["No", false],
+                    ].map(([lbl, val]) => (
+                      <button
+                        type="button"
+                        key={lbl}
+                        className={`text-sm px-4 py-1.5 rounded-full border ${
+                          packageForm.includes_dj === val
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "border-stone-300 text-stone-600"
+                        }`}
+                        onClick={() => setPackageForm({ ...packageForm, includes_dj: val })}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2">
+                    <label className="text-xs font-medium block mb-1 text-stone-500">
+                      DJ details / rules (optional — e.g. extra charge if not included, timing limits)
+                    </label>
+                    <textarea
+                      rows={2}
+                      maxLength={250}
+                      placeholder="e.g. DJ available on request for an extra ₹5,000"
+                      className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
+                      value={packageForm.dj_notes}
+                      onChange={(e) => setPackageForm({ ...packageForm, dj_notes: e.target.value })}
+                    />
+                    <p className="text-xs text-stone-400 mt-1">
+                      {(packageForm.dj_notes || "").length}/250 characters
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-1">Offer / discount</label>
+                  <select
+                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full sm:w-56"
+                    value={packageForm.discount_percent}
+                    onChange={(e) =>
+                      setPackageForm({ ...packageForm, discount_percent: parseInt(e.target.value, 10) })
+                    }
+                  >
+                    <option value={0}>No offer</option>
+                    {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80].map((pct) => (
+                      <option key={pct} value={pct}>
+                        {pct}% off
+                      </option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const price = parseFloat(packageForm.price_per_head);
+                    const pct = Number(packageForm.discount_percent) || 0;
+                    if (!price || price <= 0 || pct <= 0) return null;
+                    const discounted = Math.round(price * (1 - pct / 100) * 100) / 100;
+                    return (
+                      <p className="text-xs text-stone-500 mt-1.5">
+                        Customers pay ₹{discounted.toLocaleString("en-IN")}/head instead of ₹
+                        {price.toLocaleString("en-IN")}/head ({pct}% off). This is what the booking total
+                        and receipt will be based on.
+                      </p>
+                    );
+                  })()}
+                </div>
+
                 {(() => {
                   const setQuota = (kind, patch) =>
                     setPackageForm((f) => ({
@@ -2746,6 +2829,20 @@ export default function App() {
                         {inr(p.price_per_head)} / head · {p.min_headcount}–{p.max_headcount || "∞"} guests
                         {p.duration_hours ? ` · ${Number(p.duration_hours) === 24 ? "Full day" : `${p.duration_hours} hrs`}` : ""}
                       </p>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        <span
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                            p.includes_dj ? "bg-indigo-50 text-indigo-700" : "bg-stone-100 text-stone-500"
+                          }`}
+                        >
+                          {p.includes_dj ? "DJ included" : "No DJ"}
+                        </span>
+                        {!!p.discount_percent && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                            {p.discount_percent}% off
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-3 shrink-0">
                       <button

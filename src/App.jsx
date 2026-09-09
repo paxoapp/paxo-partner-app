@@ -3255,12 +3255,14 @@ export default function App() {
                 </form>
               )}
 
-              {/* Legacy items added before the catalog existed (no catalog_id) — still
-                  manageable here since they predate the toggle picker above. */}
-              {addons.filter((a) => !a.catalog_id).length > 0 && (
+              {/* Items the toggle picker above can't represent: legacy items added
+                  before the catalog existed (no catalog_id), and items PAXO has since
+                  removed from the active catalog — still manageable here so nothing
+                  a partner already has becomes invisible/unmanageable. */}
+              {addons.filter((a) => !a.catalog_id || !catalog.some((c) => c.id === a.catalog_id)).length > 0 && (
                 <div className="flex flex-col gap-3">
                   {addons
-                    .filter((a) => !a.catalog_id)
+                    .filter((a) => !a.catalog_id || !catalog.some((c) => c.id === a.catalog_id))
                     .map((a) => (
                       <div
                         key={a.id}

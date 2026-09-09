@@ -232,6 +232,25 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
     }
   }
 
+  const [addonsEnabledBusy, setAddonsEnabledBusy] = useState(false);
+  async function toggleAddonsEnabled() {
+    setAddonError("");
+    setAddonsEnabledBusy(true);
+    try {
+      const [row] = await sb(`/rest/v1/venues?id=eq.${venue.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: { addons_enabled: !venue.addons_enabled },
+      });
+      onUpdated(row);
+    } catch (e) {
+      setAddonError(e.message);
+    } finally {
+      setAddonsEnabledBusy(false);
+    }
+  }
+
   async function patch(body, action, note) {
     setBusy(true);
     setError("");
@@ -341,9 +360,33 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
       )}
 
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-medium text-sm">Add-Ons feature</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Turn the whole Add-Ons section on or off for this venue — customers won't see it, and the
+              partner can't manage it, while it's off.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={addonsEnabledBusy}
+            onClick={toggleAddonsEnabled}
+            className={`text-xs font-medium px-3 py-1.5 rounded-full shrink-0 disabled:opacity-50 ${
+              venue.addons_enabled
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-stone-200 text-stone-600"
+            }`}
+          >
+            {addonsEnabledBusy ? "Saving…" : venue.addons_enabled ? "Enabled — turn off" : "Disabled — turn on"}
+          </button>
+        </div>
+
         <h3 className="font-medium text-sm mb-2">Add-ons offered</h3>
         <p className="text-xs text-stone-500 mb-2">
-          Managed by the partner. Deactivate here to hide anything inappropriate or duplicate from customers.
+          Items linked to PAXO's catalog are auto-approved; partner-requested custom items need your
+          approval in the Add-Ons section before customers can see them. Deactivate here to hide
+          anything inappropriate or duplicate.
         </p>
         {addonError && <p className="text-rose-600 text-xs mb-2">{addonError}</p>}
         {addonsLoading ? (
@@ -363,6 +406,16 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
                   >
                     {a.is_active ? "Visible" : "Hidden"}
                   </span>
+                  {a.approval_status === "pending" && (
+                    <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                      Pending approval
+                    </span>
+                  )}
+                  {a.approval_status === "rejected" && (
+                    <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                      Rejected
+                    </span>
+                  )}
                   {a.description && <p className="text-stone-500 text-xs mt-0.5">{a.description}</p>}
                 </div>
                 <button
@@ -943,6 +996,344 @@ function RequestDetail({ booking: b, onBack }) {
   );
 }
 
+// Admin-owned master catalog of add-on types (Mic, Photographer, ...) partners
+// pick from, plus the cross-venue queue of partner-requested custom items
+// awaiting approval. Approving links the item to a (possibly new) catalog
+// entry, so it becomes pickable by other partners going forward.
+function AddonsAdmin({ session }) {
+  const [catalog, setCatalog] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [showCatalogForm, setShowCatalogForm] = useState(false);
+  const [catalogForm, setCatalogForm] = useState(null);
+  const [editingCatalogId, setEditingCatalogId] = useState(null);
+  const [catalogSaving, setCatalogSaving] = useState(false);
+
+  const [pending, setPending] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingBusyId, setPendingBusyId] = useState(null);
+  const [pendingError, setPendingError] = useState({});
+  const [rejectNotes, setRejectNotes] = useState({});
+
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    setCatalogError("");
+    try {
+      const data = await sb("/rest/v1/addon_catalog?select=*&order=name.asc", { token: session.token });
+      setCatalog(data);
+    } catch (e) {
+      setCatalogError(e.message);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [session.token]);
+
+  const loadPending = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const data = await sb(
+        "/rest/v1/venue_addons?approval_status=eq.pending&select=*,venues(name)&order=created_at.asc",
+        { token: session.token }
+      );
+      setPending(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    loadCatalog();
+    loadPending();
+  }, [loadCatalog, loadPending]);
+
+  function openNewCatalogForm() {
+    setCatalogForm({ name: "", description: "", is_active: true });
+    setEditingCatalogId(null);
+    setCatalogError("");
+    setShowCatalogForm(true);
+  }
+  function openEditCatalogForm(entry) {
+    setCatalogForm({
+      name: entry.name || "",
+      description: entry.description || "",
+      is_active: entry.is_active ?? true,
+    });
+    setEditingCatalogId(entry.id);
+    setCatalogError("");
+    setShowCatalogForm(true);
+  }
+  function closeCatalogForm() {
+    setShowCatalogForm(false);
+    setCatalogError("");
+  }
+
+  async function saveCatalogEntry(e) {
+    e.preventDefault();
+    setCatalogError("");
+    if (!catalogForm.name.trim()) {
+      setCatalogError("Enter a name.");
+      return;
+    }
+    setCatalogSaving(true);
+    try {
+      const body = {
+        name: catalogForm.name.trim(),
+        description: catalogForm.description.trim() || null,
+        is_active: !!catalogForm.is_active,
+      };
+      if (editingCatalogId) {
+        await sb(`/rest/v1/addon_catalog?id=eq.${editingCatalogId}`, {
+          method: "PATCH",
+          token: session.token,
+          prefer: "return=minimal",
+          body,
+        });
+      } else {
+        await sb("/rest/v1/addon_catalog", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=minimal",
+          body,
+        });
+      }
+      setShowCatalogForm(false);
+      await loadCatalog();
+    } catch (err) {
+      setCatalogError(err.message);
+    } finally {
+      setCatalogSaving(false);
+    }
+  }
+
+  async function toggleCatalogActive(entry) {
+    setCatalogError("");
+    try {
+      await sb(`/rest/v1/addon_catalog?id=eq.${entry.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { is_active: !entry.is_active },
+      });
+      await loadCatalog();
+    } catch (e) {
+      setCatalogError(e.message);
+    }
+  }
+
+  async function approvePending(item) {
+    setPendingError((m) => ({ ...m, [item.id]: "" }));
+    setPendingBusyId(item.id);
+    try {
+      const existing = catalog.find(
+        (c) => c.name.trim().toLowerCase() === (item.name || "").trim().toLowerCase()
+      );
+      let catalogId = existing?.id;
+      if (!catalogId) {
+        const [created] = await sb("/rest/v1/addon_catalog", {
+          method: "POST",
+          token: session.token,
+          prefer: "return=representation",
+          body: { name: item.name, description: item.description, is_active: true },
+        });
+        catalogId = created.id;
+      }
+      await sb(`/rest/v1/venue_addons?id=eq.${item.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { approval_status: "approved", catalog_id: catalogId, admin_notes: null },
+      });
+      await Promise.all([loadPending(), loadCatalog()]);
+    } catch (e) {
+      setPendingError((m) => ({ ...m, [item.id]: e.message }));
+    } finally {
+      setPendingBusyId(null);
+    }
+  }
+
+  async function rejectPending(item) {
+    const note = (rejectNotes[item.id] || "").trim();
+    setPendingError((m) => ({ ...m, [item.id]: "" }));
+    setPendingBusyId(item.id);
+    try {
+      await sb(`/rest/v1/venue_addons?id=eq.${item.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { approval_status: "rejected", admin_notes: note || null },
+      });
+      await loadPending();
+    } catch (e) {
+      setPendingError((m) => ({ ...m, [item.id]: e.message }));
+    } finally {
+      setPendingBusyId(null);
+    }
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Add-Ons</h1>
+      <p className="text-sm text-slate-500 mb-6">
+        The master catalog partners pick from, and custom-item requests awaiting your approval.
+      </p>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+        <h2 className="font-medium mb-2">Pending approval {pending.length > 0 ? `(${pending.length})` : ""}</h2>
+        {pendingLoading ? (
+          <p className="text-slate-400 text-sm">Loading…</p>
+        ) : pending.length === 0 ? (
+          <p className="text-slate-400 text-sm">Nothing waiting on you right now.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {pending.map((item) => (
+              <div key={item.id} className="border border-slate-200 rounded-lg p-3">
+                <p className="font-medium text-sm">{item.name}</p>
+                <p className="text-xs text-slate-500">{item.venues?.name || "—"}</p>
+                {item.description && <p className="text-sm text-slate-600 mt-1">{item.description}</p>}
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <button
+                    type="button"
+                    disabled={pendingBusyId === item.id}
+                    onClick={() => approvePending(item)}
+                    className="bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                  >
+                    {pendingBusyId === item.id ? "Working…" : "Approve"}
+                  </button>
+                  <input
+                    type="text"
+                    placeholder="Reason (for reject)"
+                    className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 min-w-[10rem]"
+                    value={rejectNotes[item.id] || ""}
+                    onChange={(e) => setRejectNotes((m) => ({ ...m, [item.id]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    disabled={pendingBusyId === item.id}
+                    onClick={() => rejectPending(item)}
+                    className="border border-rose-300 text-rose-700 text-xs font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+                {pendingError[item.id] && <p className="text-rose-600 text-xs mt-1">{pendingError[item.id]}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-medium">Master catalog</h2>
+          {!showCatalogForm && (
+            <button
+              type="button"
+              onClick={openNewCatalogForm}
+              className="bg-slate-900 text-white text-xs font-medium px-3 py-1.5 rounded"
+            >
+              + Add item
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          What partners can pick from. Deactivating hides it from the picker without removing it from
+          venues that already added it.
+        </p>
+
+        {catalogError && !showCatalogForm && <p className="text-rose-600 text-xs mb-2">{catalogError}</p>}
+
+        {showCatalogForm && catalogForm && (
+          <form
+            onSubmit={saveCatalogEntry}
+            className="border border-slate-200 rounded-lg p-4 flex flex-col gap-3 mb-4"
+          >
+            <h3 className="font-medium text-sm">{editingCatalogId ? "Edit item" : "New item"}</h3>
+            <div>
+              <label className="text-xs font-medium block mb-1">Name</label>
+              <input
+                type="text"
+                required
+                className="border border-slate-300 rounded px-3 py-2 text-sm w-full"
+                value={catalogForm.name}
+                onChange={(e) => setCatalogForm({ ...catalogForm, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium block mb-1">Description</label>
+              <textarea
+                rows={2}
+                className="border border-slate-300 rounded px-3 py-2 text-sm w-full"
+                value={catalogForm.description}
+                onChange={(e) => setCatalogForm({ ...catalogForm, description: e.target.value })}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={catalogForm.is_active}
+                onChange={(e) => setCatalogForm({ ...catalogForm, is_active: e.target.checked })}
+              />
+              Active (visible to partners)
+            </label>
+            {catalogError && <p className="text-rose-600 text-sm">{catalogError}</p>}
+            <div className="flex gap-3">
+              <button
+                disabled={catalogSaving}
+                className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded disabled:opacity-50"
+              >
+                {catalogSaving ? "Saving…" : editingCatalogId ? "Save changes" : "Add"}
+              </button>
+              <button type="button" className="text-sm text-slate-500" onClick={closeCatalogForm}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        {catalogLoading ? (
+          <p className="text-slate-400 text-sm">Loading…</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {catalog.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-start justify-between gap-3 py-1.5 border-b border-slate-100 last:border-b-0 text-sm"
+              >
+                <div>
+                  <span className="font-medium">{c.name}</span>
+                  <span
+                    className={`ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                      c.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
+                    }`}
+                  >
+                    {c.is_active ? "Active" : "Inactive"}
+                  </span>
+                  {c.description && <p className="text-slate-500 text-xs mt-0.5">{c.description}</p>}
+                </div>
+                <div className="flex gap-3 shrink-0">
+                  <button type="button" className="text-xs text-slate-600" onClick={() => openEditCatalogForm(c)}>
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className={`text-xs ${c.is_active ? "text-rose-600" : "text-emerald-600 font-medium"}`}
+                    onClick={() => toggleCatalogActive(c)}
+                  >
+                    {c.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            {catalog.length === 0 && <p className="text-slate-400 text-sm">No catalog items yet.</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Every booking request end-to-end — read-only, no PATCH here — so an analyst
 // can see who requested what from whom and what happened next, without
 // touching booking state. bookings_select_for_admin already grants this.
@@ -1254,7 +1645,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'requests' | 'settlements'
+  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'requests' | 'addons' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -1390,6 +1781,7 @@ export default function AdminApp() {
             ["dashboard", "Dashboard"],
             ["onboarding", "Onboarding"],
             ["requests", "Requests"],
+            ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
           ].map(([key, label]) => (
             <button
@@ -1423,6 +1815,8 @@ export default function AdminApp() {
           />
         ) : section === "requests" ? (
           <Requests session={session} />
+        ) : section === "addons" ? (
+          <AddonsAdmin session={session} />
         ) : section === "settlements" ? (
           <Settlements session={session} />
         ) : selected ? (

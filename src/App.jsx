@@ -244,6 +244,8 @@ export default function App() {
   const [packageSaving, setPackageSaving] = useState(false);
 
   const [addons, setAddons] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [addonsLoading, setAddonsLoading] = useState(false);
   const [showAddonForm, setShowAddonForm] = useState(false);
   const [editingAddonId, setEditingAddonId] = useState(null);
@@ -630,6 +632,23 @@ export default function App() {
     }
   }, []);
 
+  // Admin-managed master list of add-on types a partner can pick from —
+  // picking one auto-approves the venue_addons row (linked via catalog_id).
+  const loadCatalog = useCallback(async (token) => {
+    setCatalogLoading(true);
+    try {
+      const data = await sb(
+        `/rest/v1/addon_catalog?is_active=eq.true&select=*&order=name.asc`,
+        { token }
+      );
+      setCatalog(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (partnerVenue) {
       setProfileForm({ full_name: partnerVenue.full_name || "", phone: partnerVenue.phone || "" });
@@ -672,10 +691,11 @@ export default function App() {
     if (screen === "packages" && session && partnerVenue?.venue_id) {
       loadPackages(session.token, partnerVenue.venue_id);
       loadAddons(session.token, partnerVenue.venue_id);
+      loadCatalog(session.token);
       // Menu items back the package builder's brand-pool pickers.
       loadMenu(session.token, partnerVenue.venue_id);
     }
-  }, [screen, session, partnerVenue, loadPackages, loadAddons, loadMenu]);
+  }, [screen, session, partnerVenue, loadPackages, loadAddons, loadCatalog, loadMenu]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
@@ -1284,17 +1304,6 @@ export default function App() {
     }
   }
 
-  const ADDON_SUGGESTIONS = [
-    { name: "Extra Mic", description: "An additional wireless/handheld microphone for speeches, performances or announcements." },
-    { name: "Photographer", description: "A professional event photographer to capture your celebration." },
-    { name: "Videographer", description: "Professional event videography with edited highlights." },
-    { name: "Projector & Screen", description: "A projector and screen setup for presentations, videos or slideshows." },
-    { name: "Decor Team", description: "Additional theme-based decoration and styling for your event space." },
-    { name: "Sufi Singer", description: "A live Sufi vocalist performance to elevate your event's ambience." },
-    { name: "Music Band", description: "A live music band performance for entertainment." },
-    { name: "Anchor / Host", description: "A professional event anchor to host and manage the flow of the evening." },
-  ];
-
   function openNewAddonForm() {
     setAddonForm({ name: "", description: "", is_active: true });
     setEditingAddonId(null);
@@ -1318,11 +1327,30 @@ export default function App() {
     setAddonError("");
   }
 
-  function quickAddSuggestion(s) {
-    setAddonForm({ name: s.name, description: s.description, is_active: true });
-    setEditingAddonId(null);
+  // Adds one of PAXO's catalog items straight to this venue — auto-approved
+  // (linked via catalog_id) since it's already an admin-vetted item.
+  async function addCatalogItem(entry) {
     setAddonError("");
-    setShowAddonForm(true);
+    setAddonSaving(true);
+    try {
+      await sb("/rest/v1/venue_addons", {
+        method: "POST",
+        token: session.token,
+        prefer: "return=minimal",
+        body: {
+          venue_id: partnerVenue.venue_id,
+          catalog_id: entry.id,
+          name: entry.name,
+          description: entry.description,
+          is_active: true,
+        },
+      });
+      await loadAddons(session.token, partnerVenue.venue_id);
+    } catch (err) {
+      setAddonError(err.message);
+    } finally {
+      setAddonSaving(false);
+    }
   }
 
   async function saveAddon(e) {
@@ -1393,12 +1421,13 @@ export default function App() {
     }
   }
 
-  // Booking-level add-on review: partner confirms (with a price) or declines
-  // a customer's requested add-on, independent of the booking's own status.
+  // Booking-level add-on review: partner marks an item available (with a
+  // price) or not available. The customer then accepts or declines the
+  // offer themselves — this step only sets the venue's side of it.
   async function reviewAddonRequest(addonRequestId, decision) {
     setAddonReviewError((m) => ({ ...m, [addonRequestId]: "" }));
-    const body = { status: decision, reviewed_at: new Date().toISOString() };
-    if (decision === "confirmed") {
+    const body = { status: decision };
+    if (decision === "partner_available") {
       const price = parseFloat(addonReviewPrice[addonRequestId]);
       if (!price || price <= 0) {
         setAddonReviewError((m) => ({ ...m, [addonRequestId]: "Enter a valid price before confirming." }));
@@ -1982,9 +2011,17 @@ export default function App() {
                               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 shrink-0">
                                 Confirmed — {inr(a.price)}
                               </span>
-                            ) : a.status === "declined" ? (
+                            ) : a.status === "customer_declined" ? (
                               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-stone-200 text-stone-500 shrink-0">
-                                Declined
+                                Customer declined
+                              </span>
+                            ) : a.status === "not_available" ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-stone-200 text-stone-500 shrink-0">
+                                Marked not available
+                              </span>
+                            ) : a.status === "partner_available" ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 shrink-0">
+                                Awaiting customer — {inr(a.price)}
                               </span>
                             ) : (
                               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0">
@@ -2008,15 +2045,15 @@ export default function App() {
                                 type="button"
                                 disabled={addonReviewBusy === a.id}
                                 className="bg-emerald-600 text-white text-xs font-medium px-2.5 py-1 rounded disabled:opacity-50"
-                                onClick={() => reviewAddonRequest(a.id, "confirmed")}
+                                onClick={() => reviewAddonRequest(a.id, "partner_available")}
                               >
-                                Confirm
+                                Available
                               </button>
                               <button
                                 type="button"
                                 disabled={addonReviewBusy === a.id}
                                 className="border border-stone-300 text-stone-600 text-xs font-medium px-2.5 py-1 rounded disabled:opacity-50"
-                                onClick={() => reviewAddonRequest(a.id, "declined")}
+                                onClick={() => reviewAddonRequest(a.id, "not_available")}
                               >
                                 Not available
                               </button>
@@ -3133,37 +3170,57 @@ export default function App() {
               <h2 className="font-serif text-2xl mb-1">Add-Ons</h2>
               <p className="text-stone-500 text-sm mb-4">
                 Extra items customers can request with their booking — an extra mic, photographer, decor
-                team, live music and similar. Requests are informational only; you review and confirm
-                each one (with a price) after the booking itself is finalized.
+                team, live music and similar. Customers pick up to 3; you review each request and
+                respond with availability and a price, and the customer then accepts or declines
+                before it's added — paid directly at the venue.
               </p>
 
+              {partnerVenue?.venues?.addons_enabled === false && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-amber-800">
+                    Add-Ons are currently turned off for your venue by PAXO — customers won't see this
+                    section and your items below won't be requestable until it's re-enabled.
+                  </p>
+                </div>
+              )}
+
+              <div className="mb-6">
+                <p className="text-stone-400 text-xs mb-2">
+                  Add from PAXO's list — these go live for customers right away:
+                </p>
+                {catalogLoading ? (
+                  <p className="text-stone-400 text-xs">Loading…</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {catalog
+                      .filter((c) => !addons.some((a) => a.catalog_id === c.id))
+                      .map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          disabled={addonSaving}
+                          className="text-xs border border-stone-300 text-stone-600 px-2.5 py-1 rounded-full hover:border-accent hover:text-accent-ink disabled:opacity-50"
+                          onClick={() => addCatalogItem(c)}
+                          title={c.description || ""}
+                        >
+                          + {c.name}
+                        </button>
+                      ))}
+                    {catalog.length > 0 && catalog.every((c) => addons.some((a) => a.catalog_id === c.id)) && (
+                      <p className="text-stone-400 text-xs">You've added everything on PAXO's current list.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {!showAddonForm && (
-                <>
-                  <button
-                    type="button"
-                    className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded mb-3"
-                    onClick={openNewAddonForm}
-                  >
-                    + Add add-on
-                  </button>
-                  {addons.length === 0 && (
-                    <div className="mb-6">
-                      <p className="text-stone-400 text-xs mb-2">Quick add a common item:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {ADDON_SUGGESTIONS.map((s) => (
-                          <button
-                            key={s.name}
-                            type="button"
-                            className="text-xs border border-stone-300 text-stone-600 px-2.5 py-1 rounded-full hover:border-accent hover:text-accent-ink"
-                            onClick={() => quickAddSuggestion(s)}
-                          >
-                            + {s.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
+                <button
+                  type="button"
+                  className="border border-stone-300 text-stone-600 text-sm font-medium px-4 py-2 rounded mb-3"
+                  onClick={openNewAddonForm}
+                >
+                  + Request a custom item
+                </button>
               )}
 
               {addonError && !showAddonForm && <p className="text-rose-600 text-sm mb-3">{addonError}</p>}
@@ -3173,7 +3230,13 @@ export default function App() {
                   onSubmit={saveAddon}
                   className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4 mb-6"
                 >
-                  <h3 className="font-medium">{editingAddonId ? "Edit add-on" : "New add-on"}</h3>
+                  <h3 className="font-medium">{editingAddonId ? "Edit add-on" : "Request a custom item"}</h3>
+                  {!editingAddonId && (
+                    <p className="text-xs text-stone-500 -mt-2">
+                      Not on PAXO's list above? Describe it here — it'll be visible to customers once
+                      PAXO reviews and approves it.
+                    </p>
+                  )}
                   <div>
                     <label className="text-sm font-medium block mb-1">Name</label>
                     <input
@@ -3208,7 +3271,7 @@ export default function App() {
                       disabled={addonSaving}
                       className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded disabled:opacity-50"
                     >
-                      {addonSaving ? "Saving…" : editingAddonId ? "Save changes" : "Add"}
+                      {addonSaving ? "Saving…" : editingAddonId ? "Save changes" : "Send for approval"}
                     </button>
                     <button type="button" className="text-sm text-stone-500" onClick={closeAddonForm}>
                       Cancel
@@ -3224,7 +3287,7 @@ export default function App() {
                     className="bg-white border border-stone-200 rounded-lg p-4 flex items-start justify-between gap-3"
                   >
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium">{a.name}</p>
                         <span
                           className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
@@ -3233,8 +3296,21 @@ export default function App() {
                         >
                           {a.is_active ? "Visible" : "Hidden"}
                         </span>
+                        {a.approval_status === "pending" && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                            Pending PAXO approval
+                          </span>
+                        )}
+                        {a.approval_status === "rejected" && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                            Not approved
+                          </span>
+                        )}
                       </div>
                       {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
+                      {a.approval_status === "rejected" && a.admin_notes && (
+                        <p className="text-xs text-rose-600 mt-1">PAXO's note: {a.admin_notes}</p>
+                      )}
                     </div>
                     <div className="flex gap-3 shrink-0">
                       <button

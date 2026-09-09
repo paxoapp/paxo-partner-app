@@ -384,9 +384,8 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
         <h3 className="font-medium text-sm mb-2">Add-ons offered</h3>
         <p className="text-xs text-stone-500 mb-2">
-          Items linked to PAXO's catalog are auto-approved; partner-requested custom items need your
-          approval in the Add-Ons section before customers can see them. Deactivate here to hide
-          anything inappropriate or duplicate.
+          What this partner has chosen to offer from PAXO's catalog. Deactivate here to hide anything
+          inappropriate or duplicate.
         </p>
         {addonError && <p className="text-rose-600 text-xs mb-2">{addonError}</p>}
         {addonsLoading ? (
@@ -996,10 +995,9 @@ function RequestDetail({ booking: b, onBack }) {
   );
 }
 
-// Admin-owned master catalog of add-on types (Mic, Photographer, ...) partners
-// pick from, plus the cross-venue queue of partner-requested custom items
-// awaiting approval. Approving links the item to a (possibly new) catalog
-// entry, so it becomes pickable by other partners going forward.
+// Admin-owned master catalog of add-on types (Mic, Photographer, ...) that
+// partners pick from. Partner-side custom-item requests are frozen for MVP —
+// this catalog is the only source of add-ons a partner can offer.
 function AddonsAdmin({ session }) {
   const [catalog, setCatalog] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -1008,12 +1006,6 @@ function AddonsAdmin({ session }) {
   const [catalogForm, setCatalogForm] = useState(null);
   const [editingCatalogId, setEditingCatalogId] = useState(null);
   const [catalogSaving, setCatalogSaving] = useState(false);
-
-  const [pending, setPending] = useState([]);
-  const [pendingLoading, setPendingLoading] = useState(false);
-  const [pendingBusyId, setPendingBusyId] = useState(null);
-  const [pendingError, setPendingError] = useState({});
-  const [rejectNotes, setRejectNotes] = useState({});
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
@@ -1028,25 +1020,9 @@ function AddonsAdmin({ session }) {
     }
   }, [session.token]);
 
-  const loadPending = useCallback(async () => {
-    setPendingLoading(true);
-    try {
-      const data = await sb(
-        "/rest/v1/venue_addons?approval_status=eq.pending&select=*,venues(name)&order=created_at.asc",
-        { token: session.token }
-      );
-      setPending(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setPendingLoading(false);
-    }
-  }, [session.token]);
-
   useEffect(() => {
     loadCatalog();
-    loadPending();
-  }, [loadCatalog, loadPending]);
+  }, [loadCatalog]);
 
   function openNewCatalogForm() {
     setCatalogForm({ name: "", description: "", is_active: true });
@@ -1122,107 +1098,12 @@ function AddonsAdmin({ session }) {
     }
   }
 
-  async function approvePending(item) {
-    setPendingError((m) => ({ ...m, [item.id]: "" }));
-    setPendingBusyId(item.id);
-    try {
-      const existing = catalog.find(
-        (c) => c.name.trim().toLowerCase() === (item.name || "").trim().toLowerCase()
-      );
-      let catalogId = existing?.id;
-      if (!catalogId) {
-        const [created] = await sb("/rest/v1/addon_catalog", {
-          method: "POST",
-          token: session.token,
-          prefer: "return=representation",
-          body: { name: item.name, description: item.description, is_active: true },
-        });
-        catalogId = created.id;
-      }
-      await sb(`/rest/v1/venue_addons?id=eq.${item.id}`, {
-        method: "PATCH",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { approval_status: "approved", catalog_id: catalogId, admin_notes: null },
-      });
-      await Promise.all([loadPending(), loadCatalog()]);
-    } catch (e) {
-      setPendingError((m) => ({ ...m, [item.id]: e.message }));
-    } finally {
-      setPendingBusyId(null);
-    }
-  }
-
-  async function rejectPending(item) {
-    const note = (rejectNotes[item.id] || "").trim();
-    setPendingError((m) => ({ ...m, [item.id]: "" }));
-    setPendingBusyId(item.id);
-    try {
-      await sb(`/rest/v1/venue_addons?id=eq.${item.id}`, {
-        method: "PATCH",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { approval_status: "rejected", admin_notes: note || null },
-      });
-      await loadPending();
-    } catch (e) {
-      setPendingError((m) => ({ ...m, [item.id]: e.message }));
-    } finally {
-      setPendingBusyId(null);
-    }
-  }
-
   return (
     <div>
       <h1 className="text-2xl font-semibold mb-1">Add-Ons</h1>
       <p className="text-sm text-slate-500 mb-6">
-        The master catalog partners pick from, and custom-item requests awaiting your approval.
+        The master catalog partners pick which of these to offer at their venue.
       </p>
-
-      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
-        <h2 className="font-medium mb-2">Pending approval {pending.length > 0 ? `(${pending.length})` : ""}</h2>
-        {pendingLoading ? (
-          <p className="text-slate-400 text-sm">Loading…</p>
-        ) : pending.length === 0 ? (
-          <p className="text-slate-400 text-sm">Nothing waiting on you right now.</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {pending.map((item) => (
-              <div key={item.id} className="border border-slate-200 rounded-lg p-3">
-                <p className="font-medium text-sm">{item.name}</p>
-                <p className="text-xs text-slate-500">{item.venues?.name || "—"}</p>
-                {item.description && <p className="text-sm text-slate-600 mt-1">{item.description}</p>}
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  <button
-                    type="button"
-                    disabled={pendingBusyId === item.id}
-                    onClick={() => approvePending(item)}
-                    className="bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded disabled:opacity-50"
-                  >
-                    {pendingBusyId === item.id ? "Working…" : "Approve"}
-                  </button>
-                  <input
-                    type="text"
-                    placeholder="Reason (for reject)"
-                    className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 min-w-[10rem]"
-                    value={rejectNotes[item.id] || ""}
-                    onChange={(e) => setRejectNotes((m) => ({ ...m, [item.id]: e.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    disabled={pendingBusyId === item.id}
-                    onClick={() => rejectPending(item)}
-                    className="border border-rose-300 text-rose-700 text-xs font-medium px-3 py-1.5 rounded disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
-                {pendingError[item.id] && <p className="text-rose-600 text-xs mt-1">{pendingError[item.id]}</p>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
       <div className="bg-white border border-slate-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">

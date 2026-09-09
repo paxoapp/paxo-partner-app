@@ -1304,13 +1304,6 @@ export default function App() {
     }
   }
 
-  function openNewAddonForm() {
-    setAddonForm({ name: "", description: "", is_active: true });
-    setEditingAddonId(null);
-    setAddonError("");
-    setShowAddonForm(true);
-  }
-
   function openEditAddonForm(addon) {
     setAddonForm({
       name: addon.name || "",
@@ -1353,6 +1346,9 @@ export default function App() {
     }
   }
 
+  // Edit-only — this venue's catalog-linked add-ons are managed entirely via
+  // the catalog toggle picker; this form only covers a legacy custom item
+  // (added before the catalog existed) still on the venue.
   async function saveAddon(e) {
     e.preventDefault();
     setAddonError("");
@@ -1363,26 +1359,16 @@ export default function App() {
     setAddonSaving(true);
     try {
       const body = {
-        venue_id: partnerVenue.venue_id,
         name: addonForm.name.trim(),
         description: addonForm.description.trim() || null,
         is_active: !!addonForm.is_active,
       };
-      if (editingAddonId) {
-        await sb(`/rest/v1/venue_addons?id=eq.${editingAddonId}`, {
-          method: "PATCH",
-          token: session.token,
-          prefer: "return=minimal",
-          body,
-        });
-      } else {
-        await sb("/rest/v1/venue_addons", {
-          method: "POST",
-          token: session.token,
-          prefer: "return=minimal",
-          body,
-        });
-      }
+      await sb(`/rest/v1/venue_addons?id=eq.${editingAddonId}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body,
+      });
       setShowAddonForm(false);
       await loadAddons(session.token, partnerVenue.venue_id);
     } catch (err) {
@@ -3186,57 +3172,46 @@ export default function App() {
 
               <div className="mb-6">
                 <p className="text-stone-400 text-xs mb-2">
-                  Add from PAXO's list — these go live for customers right away:
+                  Click to offer an item to customers, click it again to stop offering it:
                 </p>
                 {catalogLoading ? (
                   <p className="text-stone-400 text-xs">Loading…</p>
+                ) : catalog.length === 0 ? (
+                  <p className="text-stone-400 text-xs">PAXO hasn't added any add-ons to the catalog yet.</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    {catalog
-                      .filter((c) => !addons.some((a) => a.catalog_id === c.id))
-                      .map((c) => (
+                    {catalog.map((c) => {
+                      const existing = addons.find((a) => a.catalog_id === c.id);
+                      const isOffered = !!existing;
+                      return (
                         <button
                           key={c.id}
                           type="button"
                           disabled={addonSaving}
-                          className="text-xs border border-stone-300 text-stone-600 px-2.5 py-1 rounded-full hover:border-accent hover:text-accent-ink disabled:opacity-50"
-                          onClick={() => addCatalogItem(c)}
+                          className={`text-xs px-2.5 py-1 rounded-full border disabled:opacity-50 ${
+                            isOffered
+                              ? "bg-accent/20 border-accent text-accent-ink font-medium"
+                              : "border-stone-300 text-stone-600 hover:border-accent hover:text-accent-ink"
+                          }`}
+                          onClick={() => (isOffered ? deleteAddon(existing.id) : addCatalogItem(c))}
                           title={c.description || ""}
                         >
-                          + {c.name}
+                          {isOffered ? "✓ " : "+ "}
+                          {c.name}
                         </button>
-                      ))}
-                    {catalog.length > 0 && catalog.every((c) => addons.some((a) => a.catalog_id === c.id)) && (
-                      <p className="text-stone-400 text-xs">You've added everything on PAXO's current list.</p>
-                    )}
+                      );
+                    })}
                   </div>
                 )}
+                {addonError && <p className="text-rose-600 text-sm mt-3">{addonError}</p>}
               </div>
-
-              {!showAddonForm && (
-                <button
-                  type="button"
-                  className="border border-stone-300 text-stone-600 text-sm font-medium px-4 py-2 rounded mb-3"
-                  onClick={openNewAddonForm}
-                >
-                  + Request a custom item
-                </button>
-              )}
-
-              {addonError && !showAddonForm && <p className="text-rose-600 text-sm mb-3">{addonError}</p>}
 
               {showAddonForm && addonForm && (
                 <form
                   onSubmit={saveAddon}
                   className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4 mb-6"
                 >
-                  <h3 className="font-medium">{editingAddonId ? "Edit add-on" : "Request a custom item"}</h3>
-                  {!editingAddonId && (
-                    <p className="text-xs text-stone-500 -mt-2">
-                      Not on PAXO's list above? Describe it here — it'll be visible to customers once
-                      PAXO reviews and approves it.
-                    </p>
-                  )}
+                  <h3 className="font-medium">Edit add-on</h3>
                   <div>
                     <label className="text-sm font-medium block mb-1">Name</label>
                     <input
@@ -3271,7 +3246,7 @@ export default function App() {
                       disabled={addonSaving}
                       className="bg-accent text-[#170D0B] text-sm font-medium px-4 py-2 rounded disabled:opacity-50"
                     >
-                      {addonSaving ? "Saving…" : editingAddonId ? "Save changes" : "Send for approval"}
+                      {addonSaving ? "Saving…" : "Save changes"}
                     </button>
                     <button type="button" className="text-sm text-stone-500" onClick={closeAddonForm}>
                       Cancel
@@ -3280,59 +3255,49 @@ export default function App() {
                 </form>
               )}
 
-              <div className="flex flex-col gap-3">
-                {addons.map((a) => (
-                  <div
-                    key={a.id}
-                    className="bg-white border border-stone-200 rounded-lg p-4 flex items-start justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium">{a.name}</p>
-                        <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                            a.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
-                          }`}
-                        >
-                          {a.is_active ? "Visible" : "Hidden"}
-                        </span>
-                        {a.approval_status === "pending" && (
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                            Pending PAXO approval
-                          </span>
-                        )}
-                        {a.approval_status === "rejected" && (
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
-                            Not approved
-                          </span>
-                        )}
-                      </div>
-                      {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
-                      {a.approval_status === "rejected" && a.admin_notes && (
-                        <p className="text-xs text-rose-600 mt-1">PAXO's note: {a.admin_notes}</p>
-                      )}
-                    </div>
-                    <div className="flex gap-3 shrink-0">
-                      <button
-                        type="button"
-                        className={`text-xs ${a.is_active ? "text-stone-500" : "text-emerald-600 font-medium"}`}
-                        onClick={() => toggleAddonActive(a)}
+              {/* Legacy items added before the catalog existed (no catalog_id) — still
+                  manageable here since they predate the toggle picker above. */}
+              {addons.filter((a) => !a.catalog_id).length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {addons
+                    .filter((a) => !a.catalog_id)
+                    .map((a) => (
+                      <div
+                        key={a.id}
+                        className="bg-white border border-stone-200 rounded-lg p-4 flex items-start justify-between gap-3"
                       >
-                        {a.is_active ? "Hide" : "Show"}
-                      </button>
-                      <button type="button" className="text-xs text-accent-ink" onClick={() => openEditAddonForm(a)}>
-                        Edit
-                      </button>
-                      <button type="button" className="text-xs text-rose-600" onClick={() => deleteAddon(a.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {!addonsLoading && addons.length === 0 && (
-                  <p className="text-stone-400 text-sm">No add-ons yet — add one above so customers can request it.</p>
-                )}
-              </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium">{a.name}</p>
+                            <span
+                              className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                                a.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
+                              }`}
+                            >
+                              {a.is_active ? "Visible" : "Hidden"}
+                            </span>
+                          </div>
+                          {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
+                        </div>
+                        <div className="flex gap-3 shrink-0">
+                          <button
+                            type="button"
+                            className={`text-xs ${a.is_active ? "text-stone-500" : "text-emerald-600 font-medium"}`}
+                            onClick={() => toggleAddonActive(a)}
+                          >
+                            {a.is_active ? "Hide" : "Show"}
+                          </button>
+                          <button type="button" className="text-xs text-accent-ink" onClick={() => openEditAddonForm(a)}>
+                            Edit
+                          </button>
+                          <button type="button" className="text-xs text-rose-600" onClick={() => deleteAddon(a.id)}>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         )}

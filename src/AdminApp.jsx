@@ -12,6 +12,22 @@ const TABS = [
   ["all", "All"],
 ];
 
+const DEACTIVATION_REASONS = [
+  "SLA not signed",
+  "GST / compliance issue",
+  "Repeated policy violations",
+  "Fraudulent or misleading listing",
+  "Other",
+];
+
+const HOLD_REASONS = [
+  "Package price doesn't match the menu",
+  "Menu needs to be updated",
+  "GST document expired — please provide a new one",
+  "Listing photos/details need correction",
+  "Other",
+];
+
 const nowIso = () => new Date().toISOString();
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtDateTime = (d) =>
@@ -187,6 +203,65 @@ function RejectForm({ onConfirm, onCancel, busy }) {
       </div>
     </div>
   );
+}
+
+// Canned-reason + free-text form shared by venue hold/deactivate and package
+// hold — same pattern as RejectForm above.
+function StateReasonForm({ title, reasons, confirmLabel, tone, onConfirm, onCancel, busy }) {
+  const [reason, setReason] = useState("");
+  const [text, setText] = useState("");
+  const toneCls =
+    tone === "rose"
+      ? { box: "border-rose-200 bg-rose-50", title: "text-rose-800", btn: "bg-rose-600" }
+      : { box: "border-amber-200 bg-amber-50", title: "text-amber-800", btn: "bg-amber-600" };
+  return (
+    <div className={`border rounded-lg p-4 flex flex-col gap-3 mt-3 ${toneCls.box}`}>
+      <p className={`text-sm font-medium ${toneCls.title}`}>{title}</p>
+      <select
+        className="border border-slate-300 rounded px-3 py-2 text-sm"
+        value={reason}
+        onChange={(e) => {
+          const r = e.target.value;
+          setReason(r);
+          if (r && r !== "Other") setText(r);
+          if (r === "Other") setText("");
+        }}
+      >
+        <option value="">Select a standard reason…</option>
+        {reasons.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+      <textarea
+        rows={3}
+        placeholder="Reason shown to the partner (required, editable)"
+        className="border border-slate-300 rounded px-3 py-2 text-sm"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <button
+          disabled={busy || !text.trim()}
+          onClick={() => onConfirm(text.trim())}
+          className={`text-white text-sm font-medium rounded px-4 py-2 disabled:opacity-50 ${toneCls.btn}`}
+        >
+          {busy ? "Saving…" : confirmLabel}
+        </button>
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function VenueStatePill({ state }) {
+  const cls =
+    state === "deactivated"
+      ? "bg-rose-100 text-rose-800"
+      : state === "on_hold"
+      ? "bg-amber-100 text-amber-800"
+      : "bg-emerald-100 text-emerald-800";
+  const label = state === "deactivated" ? "Deactivated" : state === "on_hold" ? "On Hold" : "Active";
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{label}</span>;
 }
 
 function VenueDetail({ session, venue, onBack, onUpdated }) {
@@ -995,6 +1070,381 @@ function RequestDetail({ booking: b, onBack }) {
   );
 }
 
+// Per-venue live-status control (Active / On Hold / Deactivated) plus booking
+// activity and per-package hold — the admin's single place to see what's
+// happening with an approved partner and step in when something's wrong.
+function PartnersAdmin({ session }) {
+  const [venues, setVenues] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [v, b] = await Promise.all([
+        sb(
+          "/rest/v1/venues?status=eq.approved&select=*,partner_users(full_name,phone)&order=name.asc",
+          { token: session.token }
+        ),
+        sb("/rest/v1/bookings?select=id,venue_id,status", { token: session.token }),
+      ]);
+      setVenues(v);
+      setBookings(b);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const bookingStatsFor = (venueId) =>
+    bookings
+      .filter((b) => b.venue_id === venueId)
+      .reduce((acc, b) => {
+        acc[b.status] = (acc[b.status] || 0) + 1;
+        return acc;
+      }, {});
+
+  const counts = venues.reduce(
+    (acc, v) => {
+      acc[v.venue_state || "active"] = (acc[v.venue_state || "active"] || 0) + 1;
+      return acc;
+    },
+    { active: 0, on_hold: 0, deactivated: 0 }
+  );
+
+  const q = search.trim().toLowerCase();
+  const list = venues.filter((v) => {
+    if (!q) return true;
+    return [v.name, v.city, v.owner_name].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
+  });
+
+  const selected = venues.find((v) => v.id === selectedId) || null;
+
+  if (selected) {
+    return (
+      <PartnerVenueDetail
+        session={session}
+        venue={selected}
+        bookingStats={bookingStatsFor(selected.id)}
+        onBack={() => setSelectedId(null)}
+        onUpdated={(row) => setVenues((vs) => vs.map((v) => (v.id === row.id ? { ...v, ...row } : v)))}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Partner dashboard</h1>
+      <p className="text-sm text-slate-500 mb-4">
+        Live status control and booking activity for approved venues.
+      </p>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <div className="grid grid-cols-3 gap-3 mb-4 max-w-lg">
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">Live</p>
+          <p className="text-xl font-semibold mt-1 text-emerald-700">{counts.active}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">On Hold</p>
+          <p className="text-xl font-semibold mt-1 text-amber-700">{counts.on_hold}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">Deactivated</p>
+          <p className="text-xl font-semibold mt-1 text-rose-700">{counts.deactivated}</p>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by venue, city, or owner…"
+        className="border border-slate-300 rounded px-3 py-1.5 text-sm w-full sm:w-80 mb-3"
+      />
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : list.length === 0 ? (
+        <p className="text-slate-400 text-sm">No approved venues yet.</p>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">Venue</th>
+                <th className="text-left px-4 py-2 hidden sm:table-cell">City</th>
+                <th className="text-left px-4 py-2">Live status</th>
+                <th className="text-left px-4 py-2 hidden md:table-cell">Bookings</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((v) => {
+                const s = bookingStatsFor(v.id);
+                const total = Object.values(s).reduce((a, n) => a + n, 0);
+                return (
+                  <tr
+                    key={v.id}
+                    className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => setSelectedId(v.id)}
+                  >
+                    <td className="px-4 py-2.5 font-medium">{v.name}</td>
+                    <td className="px-4 py-2.5 text-slate-600 hidden sm:table-cell">{v.city}</td>
+                    <td className="px-4 py-2.5">
+                      <VenueStatePill state={v.venue_state || "active"} />
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 hidden md:table-cell">
+                      {total} total
+                      {total > 0 &&
+                        ` (${s.accepted || 0} accepted, ${s.rejected || 0} rejected, ${s.cancelled || 0} cancelled, ${s.pending || 0} pending)`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(null); // 'hold' | 'deactivate' | null
+
+  const [packages, setPackages] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
+  const [packageError, setPackageError] = useState("");
+  const [holdingPackageId, setHoldingPackageId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPackagesLoading(true);
+    sb(`/rest/v1/venue_packages?venue_id=eq.${venue.id}&select=*&order=price_per_head.asc`, {
+      token: session.token,
+    })
+      .then((rows) => !cancelled && setPackages(rows))
+      .catch((e) => !cancelled && setPackageError(e.message))
+      .finally(() => !cancelled && setPackagesLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [venue.id, session.token]);
+
+  async function setVenueState(state, reason) {
+    setBusy(true);
+    setError("");
+    try {
+      const [row] = await sb(`/rest/v1/venues?id=eq.${venue.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: {
+          venue_state: state,
+          state_reason: state === "active" ? null : reason || null,
+          state_changed_at: nowIso(),
+          state_changed_by: session.userId,
+        },
+      });
+      logStatusChange(venue, `venue_state:${state}`, reason);
+      setShowForm(null);
+      onUpdated(row);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setPackageHold(pkg, hold, reason) {
+    setPackageError("");
+    try {
+      const [row] = await sb(`/rest/v1/venue_packages?id=eq.${pkg.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: {
+          admin_hold: hold,
+          admin_hold_reason: hold ? reason || null : null,
+          admin_hold_at: hold ? nowIso() : null,
+          admin_hold_by: hold ? session.userId : null,
+        },
+      });
+      setHoldingPackageId(null);
+      setPackages((rows) => rows.map((r) => (r.id === row.id ? row : r)));
+    } catch (e) {
+      setPackageError(e.message);
+    }
+  }
+
+  const bookingTotal = Object.values(bookingStats).reduce((a, n) => a + n, 0);
+
+  return (
+    <div>
+      <button onClick={onBack} className="text-sm text-slate-500 mb-4">← Back to partner dashboard</button>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-2xl font-semibold">{venue.name}</h2>
+          <p className="text-slate-500 text-sm">{venue.venue_type} · {venue.city}</p>
+        </div>
+        <VenueStatePill state={venue.venue_state || "active"} />
+      </div>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Live status control</h3>
+        {venue.venue_state && venue.venue_state !== "active" && (
+          <p className="text-sm text-slate-600 mb-3">
+            Current reason: <span className="font-medium">{venue.state_reason || "—"}</span>
+          </p>
+        )}
+        {showForm === "hold" ? (
+          <StateReasonForm
+            title="Put this venue on hold — hidden from customers, partner keeps full access"
+            reasons={HOLD_REASONS}
+            confirmLabel="Confirm hold"
+            tone="amber"
+            busy={busy}
+            onConfirm={(text) => setVenueState("on_hold", text)}
+            onCancel={() => setShowForm(null)}
+          />
+        ) : showForm === "deactivate" ? (
+          <StateReasonForm
+            title="Deactivate this venue — hidden from customers, partner sees the reason"
+            reasons={DEACTIVATION_REASONS}
+            confirmLabel="Confirm deactivation"
+            tone="rose"
+            busy={busy}
+            onConfirm={(text) => setVenueState("deactivated", text)}
+            onCancel={() => setShowForm(null)}
+          />
+        ) : (
+          <div className="flex gap-2 flex-wrap">
+            {venue.venue_state && venue.venue_state !== "active" && (
+              <button
+                disabled={busy}
+                onClick={() => setVenueState("active", null)}
+                className="bg-emerald-600 text-white text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Reactivate — make live"}
+              </button>
+            )}
+            {venue.venue_state !== "on_hold" && (
+              <button
+                disabled={busy}
+                onClick={() => setShowForm("hold")}
+                className="bg-amber-100 text-amber-800 text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                Put on hold
+              </button>
+            )}
+            {venue.venue_state !== "deactivated" && (
+              <button
+                disabled={busy}
+                onClick={() => setShowForm("deactivate")}
+                className="bg-rose-100 text-rose-800 text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                Deactivate
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Bookings ({bookingTotal} total)</h3>
+        {bookingTotal === 0 ? (
+          <p className="text-slate-400 text-sm">No bookings yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {BOOKING_STATUS_ORDER.filter((s) => bookingStats[s]).map((s) => (
+              <div
+                key={s}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2"
+              >
+                <BookingStatusPill status={s} />
+                <span className="text-sm font-semibold">{bookingStats[s]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="font-medium text-sm mb-2">Packages</h3>
+        {packageError && <p className="text-rose-600 text-sm mb-2">{packageError}</p>}
+        {packagesLoading ? (
+          <p className="text-slate-400 text-sm">Loading…</p>
+        ) : packages.length === 0 ? (
+          <p className="text-slate-400 text-sm">No packages yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {packages.map((p) => (
+              <div key={p.id} className="border border-slate-200 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm">{p.name}</p>
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          p.is_published ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
+                        }`}
+                      >
+                        {p.is_published ? "Published" : "Draft"}
+                      </span>
+                      {p.admin_hold && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                          On hold
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-500">{inr(p.price_per_head)} / head</p>
+                    {p.admin_hold && (
+                      <p className="text-xs text-rose-600 mt-1">Reason: {p.admin_hold_reason || "—"}</p>
+                    )}
+                  </div>
+                  {holdingPackageId !== p.id && (
+                    <button
+                      onClick={() => (p.admin_hold ? setPackageHold(p, false, null) : setHoldingPackageId(p.id))}
+                      className={`text-xs font-medium shrink-0 ${p.admin_hold ? "text-emerald-700" : "text-rose-600"}`}
+                    >
+                      {p.admin_hold ? "Release hold" : "Put on hold"}
+                    </button>
+                  )}
+                </div>
+                {holdingPackageId === p.id && (
+                  <StateReasonForm
+                    title={`Hold "${p.name}" — hidden from customers only`}
+                    reasons={HOLD_REASONS}
+                    confirmLabel="Confirm hold"
+                    tone="amber"
+                    busy={false}
+                    onConfirm={(text) => setPackageHold(p, true, text)}
+                    onCancel={() => setHoldingPackageId(null)}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Admin-owned master catalog of add-on types (Mic, Photographer, ...) that
 // partners pick from. Partner-side custom-item requests are frozen for MVP —
 // this catalog is the only source of add-ons a partner can offer.
@@ -1526,7 +1976,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'requests' | 'addons' | 'settlements'
+  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'partners' | 'requests' | 'addons' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -1661,6 +2111,7 @@ export default function AdminApp() {
           {[
             ["dashboard", "Dashboard"],
             ["onboarding", "Onboarding"],
+            ["partners", "Partners"],
             ["requests", "Requests"],
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
@@ -1694,6 +2145,8 @@ export default function AdminApp() {
               setSelectedId(null);
             }}
           />
+        ) : section === "partners" ? (
+          <PartnersAdmin session={session} />
         ) : section === "requests" ? (
           <Requests session={session} />
         ) : section === "addons" ? (

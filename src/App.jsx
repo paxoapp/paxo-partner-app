@@ -144,6 +144,38 @@ function bookingSelectionGroups(booking, categories) {
     .sort((a, b) => a.kind.localeCompare(b.kind));
 }
 
+// Admin-set venue-wide status, shown persistently while it's anything other
+// than "active". On hold: hidden from customers only, partner keeps full
+// access. Deactivated: also hidden from customers, with a PAXO contact so the
+// partner can resolve it.
+function VenueStateBanner({ venue }) {
+  if (!venue || !venue.venue_state || venue.venue_state === "active") return null;
+  const onHold = venue.venue_state === "on_hold";
+  return (
+    <div
+      className={`rounded-lg border p-4 mb-6 ${
+        onHold ? "bg-amber-50 border-amber-200" : "bg-rose-50 border-rose-200"
+      }`}
+    >
+      <p className={`text-sm font-semibold ${onHold ? "text-amber-800" : "text-rose-800"}`}>
+        {onHold ? "Your venue is on hold — hidden from customers" : "Your account has been deactivated"}
+      </p>
+      <p className={`text-sm mt-1 ${onHold ? "text-amber-700" : "text-rose-700"}`}>
+        Reason: {venue.state_reason || "not specified"}
+      </p>
+      <p className={`text-xs mt-2 ${onHold ? "text-amber-600" : "text-rose-600"}`}>
+        {onHold
+          ? "You can still manage bookings and update your listing here. Once it's fixed, "
+          : "Contact the PAXO team to resolve this: "}
+        <a href="mailto:paxoapp.in@gmail.com" className="underline font-medium">
+          paxoapp.in@gmail.com
+        </a>
+        {onHold ? " and we'll review it." : "."}
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState("auth");
   const [session, setSession] = useState(null);
@@ -1862,6 +1894,7 @@ export default function App() {
 
       <main key={screen} className="max-w-4xl mx-auto px-5 py-8 animate-[fadein_0.2s_ease-out]">
         <style>{`@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+        <VenueStateBanner venue={venue} />
         {screen === "dashboard" && (
           <>
         <p className="text-accent-ink text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>
@@ -3078,11 +3111,21 @@ export default function App() {
                         >
                           {p.is_published ? "Published" : "Draft"}
                         </span>
+                        {p.admin_hold && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                            On hold by PAXO
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-stone-500">
                         {inr(p.price_per_head)} / head · {p.min_headcount}–{p.max_headcount || "∞"} guests
                         {p.duration_hours ? ` · ${Number(p.duration_hours) === 24 ? "Full day" : `${p.duration_hours} hrs`}` : ""}
                       </p>
+                      {p.admin_hold && (
+                        <p className="text-xs text-rose-600 mt-1">
+                          Hidden from customers — {p.admin_hold_reason || "no reason provided"}. Update it and PAXO will review again.
+                        </p>
+                      )}
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
                         <span
                           className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${

@@ -3,14 +3,16 @@ import { sb, uploadPartnerDocument } from "./supabase";
 import StatusStepper from "./StatusStepper";
 
 export const VENUE_TYPES = [
-  "Banquet Hall",
-  "Hotel",
   "Restaurant",
-  "Rooftop",
-  "Lawn / Farmhouse",
-  "Club / Lounge",
-  "Resort",
-  "Conference / Community Hall",
+  "Cafe",
+  "Bar",
+  "Lounge",
+  "Club / Nightclub",
+  "Pub",
+  "Brewery / Microbrewery",
+  "BYOB",
+  "Rooftop / Terrace Venue",
+  "Restro-Bar / Gastro Pub",
   "Other",
 ];
 

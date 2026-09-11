@@ -28,6 +28,14 @@ const HOLD_REASONS = [
   "Other",
 ];
 
+const CUSTOMER_STATE_REASONS = [
+  "Repeated no-shows",
+  "Abusive behavior",
+  "Fraudulent / suspicious booking activity",
+  "Repeated last-minute cancellations",
+  "Other",
+];
+
 const nowIso = () => new Date().toISOString();
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtDateTime = (d) =>
@@ -1445,6 +1453,348 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
   );
 }
 
+// Registered-customer roster: how many signed up, their booking activity, and
+// admin control to block new booking requests from a specific account (abuse,
+// no-shows, fraud) without touching their existing bookings.
+function CustomersAdmin({ session }) {
+  const [profiles, setProfiles] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [p, b] = await Promise.all([
+        sb(
+          "/rest/v1/profiles?select=id,full_name,phone,email,no_show_count,rating_avg,created_at,account_state,state_reason&order=created_at.desc",
+          { token: session.token }
+        ),
+        sb("/rest/v1/bookings?select=id,customer_id,status", { token: session.token }),
+      ]);
+      setProfiles(p);
+      setBookings(b);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const bookingStatsFor = (customerId) =>
+    bookings
+      .filter((b) => b.customer_id === customerId)
+      .reduce((acc, b) => {
+        acc[b.status] = (acc[b.status] || 0) + 1;
+        return acc;
+      }, {});
+
+  const counts = profiles.reduce(
+    (acc, p) => {
+      acc[p.account_state || "active"] = (acc[p.account_state || "active"] || 0) + 1;
+      return acc;
+    },
+    { active: 0, on_hold: 0, deactivated: 0 }
+  );
+
+  const q = search.trim().toLowerCase();
+  const list = profiles.filter((p) => {
+    if (!q) return true;
+    return [p.full_name, p.phone, p.email].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
+  });
+
+  const selected = profiles.find((p) => p.id === selectedId) || null;
+
+  if (selected) {
+    return (
+      <CustomerDetail
+        session={session}
+        customer={selected}
+        bookingStats={bookingStatsFor(selected.id)}
+        onBack={() => setSelectedId(null)}
+        onUpdated={(row) => setProfiles((ps) => ps.map((p) => (p.id === row.id ? { ...p, ...row } : p)))}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Customers</h1>
+      <p className="text-sm text-slate-500 mb-4">
+        {profiles.length} registered customer{profiles.length === 1 ? "" : "s"}.
+      </p>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <div className="grid grid-cols-3 gap-3 mb-4 max-w-lg">
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">Active</p>
+          <p className="text-xl font-semibold mt-1 text-emerald-700">{counts.active}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">On Hold</p>
+          <p className="text-xl font-semibold mt-1 text-amber-700">{counts.on_hold}</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <p className="text-xs text-slate-500">Deactivated</p>
+          <p className="text-xl font-semibold mt-1 text-rose-700">{counts.deactivated}</p>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name, phone, or email…"
+        className="border border-slate-300 rounded px-3 py-1.5 text-sm w-full sm:w-80 mb-3"
+      />
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : list.length === 0 ? (
+        <p className="text-slate-400 text-sm">No customers yet.</p>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">Customer</th>
+                <th className="text-left px-4 py-2 hidden sm:table-cell">Phone / Email</th>
+                <th className="text-left px-4 py-2">Account</th>
+                <th className="text-left px-4 py-2 hidden md:table-cell">Bookings</th>
+                <th className="text-left px-4 py-2 hidden md:table-cell">Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((p) => {
+                const s = bookingStatsFor(p.id);
+                const total = Object.values(s).reduce((a, n) => a + n, 0);
+                return (
+                  <tr
+                    key={p.id}
+                    className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => setSelectedId(p.id)}
+                  >
+                    <td className="px-4 py-2.5 font-medium">{p.full_name || "—"}</td>
+                    <td className="px-4 py-2.5 text-slate-600 hidden sm:table-cell">
+                      {[p.phone, p.email].filter(Boolean).join(" · ") || "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <VenueStatePill state={p.account_state || "active"} />
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 hidden md:table-cell">
+                      {total} total
+                      {total > 0 &&
+                        ` (${s.accepted || 0} accepted, ${s.rejected || 0} rejected, ${s.cancelled || 0} cancelled, ${s.pending || 0} pending)`}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 hidden md:table-cell">{fmtDate(p.created_at)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerDetail({ session, customer, bookingStats, onBack, onUpdated }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(null); // 'hold' | 'deactivate' | null
+
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestsError, setRequestsError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setRequestsLoading(true);
+    sb(
+      `/rest/v1/bookings?customer_id=eq.${customer.id}&select=id,event_date,status,total_amount,created_at,venues(name)&order=created_at.desc`,
+      { token: session.token }
+    )
+      .then((rows) => !cancelled && setRequests(rows))
+      .catch((e) => !cancelled && setRequestsError(e.message))
+      .finally(() => !cancelled && setRequestsLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [customer.id, session.token]);
+
+  async function setAccountState(state, reason) {
+    setBusy(true);
+    setError("");
+    try {
+      const [row] = await sb(`/rest/v1/profiles?id=eq.${customer.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: {
+          account_state: state,
+          state_reason: state === "active" ? null : reason || null,
+          state_changed_at: nowIso(),
+          state_changed_by: session.userId,
+        },
+      });
+      setShowForm(null);
+      onUpdated(row);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const bookingTotal = Object.values(bookingStats).reduce((a, n) => a + n, 0);
+
+  return (
+    <div>
+      <button onClick={onBack} className="text-sm text-slate-500 mb-4">← Back to customers</button>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-2xl font-semibold">{customer.full_name || "Unnamed customer"}</h2>
+          <p className="text-slate-500 text-sm">
+            {[customer.phone, customer.email].filter(Boolean).join(" · ") || "—"} · Joined{" "}
+            {fmtDate(customer.created_at)}
+          </p>
+        </div>
+        <VenueStatePill state={customer.account_state || "active"} />
+      </div>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Account control</h3>
+        {customer.account_state && customer.account_state !== "active" && (
+          <p className="text-sm text-slate-600 mb-3">
+            Current reason: <span className="font-medium">{customer.state_reason || "—"}</span>
+          </p>
+        )}
+        {showForm === "hold" ? (
+          <StateReasonForm
+            title="Put this account on hold — blocks new booking requests only"
+            reasons={CUSTOMER_STATE_REASONS}
+            confirmLabel="Confirm hold"
+            tone="amber"
+            busy={busy}
+            onConfirm={(text) => setAccountState("on_hold", text)}
+            onCancel={() => setShowForm(null)}
+          />
+        ) : showForm === "deactivate" ? (
+          <StateReasonForm
+            title="Deactivate this account — blocks new booking requests only"
+            reasons={CUSTOMER_STATE_REASONS}
+            confirmLabel="Confirm deactivation"
+            tone="rose"
+            busy={busy}
+            onConfirm={(text) => setAccountState("deactivated", text)}
+            onCancel={() => setShowForm(null)}
+          />
+        ) : (
+          <div className="flex gap-2 flex-wrap">
+            {customer.account_state && customer.account_state !== "active" && (
+              <button
+                disabled={busy}
+                onClick={() => setAccountState("active", null)}
+                className="bg-emerald-600 text-white text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Reactivate"}
+              </button>
+            )}
+            {customer.account_state !== "on_hold" && (
+              <button
+                disabled={busy}
+                onClick={() => setShowForm("hold")}
+                className="bg-amber-100 text-amber-800 text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                Put on hold
+              </button>
+            )}
+            {customer.account_state !== "deactivated" && (
+              <button
+                disabled={busy}
+                onClick={() => setShowForm("deactivate")}
+                className="bg-rose-100 text-rose-800 text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+              >
+                Deactivate
+              </button>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-slate-400 mt-3">
+          Either state only blocks new booking requests — the customer can still log in, browse, and
+          manage bookings they already have.
+        </p>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h3 className="font-medium text-sm mb-2">Bookings ({bookingTotal} total)</h3>
+        {bookingTotal === 0 ? (
+          <p className="text-slate-400 text-sm">No bookings yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {BOOKING_STATUS_ORDER.filter((s) => bookingStats[s]).map((s) => (
+              <div
+                key={s}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2"
+              >
+                <BookingStatusPill status={s} />
+                <span className="text-sm font-semibold">{bookingStats[s]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="font-medium text-sm mb-2">Request details</h3>
+        {requestsError && <p className="text-rose-600 text-sm mb-2">{requestsError}</p>}
+        {requestsLoading ? (
+          <p className="text-slate-400 text-sm">Loading…</p>
+        ) : requests.length === 0 ? (
+          <p className="text-slate-400 text-sm">No booking requests yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr>
+                  <th className="text-left px-3 py-2">Venue</th>
+                  <th className="text-left px-3 py-2">Event date</th>
+                  <th className="text-left px-3 py-2">Status</th>
+                  <th className="text-right px-3 py-2">Amount</th>
+                  <th className="text-left px-3 py-2">Requested</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium">{r.venues?.name || "—"}</td>
+                    <td className="px-3 py-2 text-slate-600">{fmtDate(r.event_date)}</td>
+                    <td className="px-3 py-2">
+                      <BookingStatusPill status={r.status} />
+                    </td>
+                    <td className="px-3 py-2 text-right">{inr(r.total_amount)}</td>
+                    <td className="px-3 py-2 text-slate-600">{fmtDate(r.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Admin-owned master catalog of add-on types (Mic, Photographer, ...) that
 // partners pick from. Partner-side custom-item requests are frozen for MVP —
 // this catalog is the only source of add-ons a partner can offer.
@@ -1976,7 +2326,7 @@ export default function AdminApp() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
 
-  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'partners' | 'requests' | 'addons' | 'settlements'
+  const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'partners' | 'customers' | 'requests' | 'addons' | 'settlements'
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("submitted");
@@ -2112,6 +2462,7 @@ export default function AdminApp() {
             ["dashboard", "Dashboard"],
             ["onboarding", "Onboarding"],
             ["partners", "Partners"],
+            ["customers", "Customers"],
             ["requests", "Requests"],
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
@@ -2147,6 +2498,8 @@ export default function AdminApp() {
           />
         ) : section === "partners" ? (
           <PartnersAdmin session={session} />
+        ) : section === "customers" ? (
+          <CustomersAdmin session={session} />
         ) : section === "requests" ? (
           <Requests session={session} />
         ) : section === "addons" ? (

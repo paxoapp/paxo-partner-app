@@ -1127,7 +1127,6 @@ export default function App() {
       includes_dj: false,
       dj_notes: "",
       discount_percent: 0,
-      deposit_50_discount_percent: 0,
       quotas: {
         ...Object.fromEntries(
           FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
@@ -1163,7 +1162,6 @@ export default function App() {
       includes_dj: pkg.includes_dj ?? false,
       dj_notes: pkg.dj_notes || "",
       discount_percent: pkg.discount_percent ?? 0,
-      deposit_50_discount_percent: pkg.deposit_50_discount_percent ?? 0,
       quotas,
       poolItemIds: (pkg.package_item_pool || []).map((r) => r.menu_item_id),
     });
@@ -1240,7 +1238,6 @@ export default function App() {
         includes_dj: !!packageForm.includes_dj,
         dj_notes: (packageForm.dj_notes || "").trim() || null,
         discount_percent: parseInt(packageForm.discount_percent, 10) || 0,
-        deposit_50_discount_percent: parseInt(packageForm.deposit_50_discount_percent, 10) || 0,
       };
 
       let packageId = editingPackageId;
@@ -2948,29 +2945,6 @@ export default function App() {
                   })()}
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium block mb-1">50% deposit discount</label>
-                  <p className="text-xs text-stone-400 mb-1.5">
-                    A separate incentive — if a customer pays a 50% deposit instead of 20% on this
-                    package, give them this much off the total package price. Independent of the
-                    offer/discount above.
-                  </p>
-                  <select
-                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full sm:w-56"
-                    value={packageForm.deposit_50_discount_percent}
-                    onChange={(e) =>
-                      setPackageForm({ ...packageForm, deposit_50_discount_percent: parseInt(e.target.value, 10) })
-                    }
-                  >
-                    <option value={0}>No discount</option>
-                    {[3, 6, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((pct) => (
-                      <option key={pct} value={pct}>
-                        {pct}% off
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 {(() => {
                   const setQuota = (kind, patch) =>
                     setPackageForm((f) => ({
@@ -3183,11 +3157,6 @@ export default function App() {
                         {!!p.discount_percent && (
                           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
                             {p.discount_percent}% off
-                          </span>
-                        )}
-                        {!!p.deposit_50_discount_percent && (
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                            {p.deposit_50_discount_percent}% off on 50% deposit
                           </span>
                         )}
                       </div>

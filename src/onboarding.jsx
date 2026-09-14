@@ -70,7 +70,7 @@ function Field({ label, children }) {
  * the existing venue and bumps submitted_at so it resurfaces in the admin queue;
  * status stays 'rejected' because the DB trigger blocks partners changing it).
  */
-export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel }) {
+export function VenueSubmissionForm({ session, initial, referredByVenueId, onSubmitted, onCancel }) {
   const isResubmit = !!initial?.id;
   const [f, setF] = useState({
     owner_name: initial?.owner_name || "",
@@ -148,7 +148,13 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
           method: "POST",
           token: session.token,
           prefer: "return=minimal",
-          body: { id: venueId, ...payload, status: "submitted", submitted_at: new Date().toISOString() },
+          body: {
+            id: venueId,
+            ...payload,
+            status: "submitted",
+            submitted_at: new Date().toISOString(),
+            referred_by_venue_id: referredByVenueId || null,
+          },
         });
         await sb("/rest/v1/partner_users", {
           method: "POST",

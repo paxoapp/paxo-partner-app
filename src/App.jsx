@@ -5,7 +5,7 @@ import { sb, SUPABASE_URL } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
-const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://paxo-customer-app.vercel.app";
+const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
 
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
@@ -289,6 +289,18 @@ export default function App() {
   const [addonReviewBusy, setAddonReviewBusy] = useState(null);
   const [addonReviewPrice, setAddonReviewPrice] = useState({});
   const [addonReviewError, setAddonReviewError] = useState({});
+
+  // "Invite a partner" QR deep link — /invite/partner/<code>. Resolved once on
+  // load, kept in state (not persisted) for the rest of this visit, and passed
+  // into VenueSubmissionForm as venues.referred_by_venue_id when they sign up.
+  const [referredByVenue, setReferredByVenue] = useState(null); // { id, name } | null
+  useEffect(() => {
+    const m = window.location.pathname.match(/^\/invite\/partner\/([A-Za-z0-9]+)$/);
+    if (!m) return;
+    sb(`/rest/v1/venues?invite_partner_code=eq.${m[1]}&select=id,name&limit=1`)
+      .then((rows) => rows?.[0] && setReferredByVenue(rows[0]))
+      .catch(() => {});
+  }, []);
 
   const CATEGORY_KINDS = [
     ["starter_veg", "Starters (veg)"],
@@ -1115,6 +1127,7 @@ export default function App() {
       includes_dj: false,
       dj_notes: "",
       discount_percent: 0,
+      deposit_50_discount_percent: 0,
       quotas: {
         ...Object.fromEntries(
           FOOD_QUOTA_CATEGORIES.map(([kind, , def]) => [kind, { checked: true, count: def }])
@@ -1150,6 +1163,7 @@ export default function App() {
       includes_dj: pkg.includes_dj ?? false,
       dj_notes: pkg.dj_notes || "",
       discount_percent: pkg.discount_percent ?? 0,
+      deposit_50_discount_percent: pkg.deposit_50_discount_percent ?? 0,
       quotas,
       poolItemIds: (pkg.package_item_pool || []).map((r) => r.menu_item_id),
     });
@@ -1226,6 +1240,7 @@ export default function App() {
         includes_dj: !!packageForm.includes_dj,
         dj_notes: (packageForm.dj_notes || "").trim() || null,
         discount_percent: parseInt(packageForm.discount_percent, 10) || 0,
+        deposit_50_discount_percent: parseInt(packageForm.deposit_50_discount_percent, 10) || 0,
       };
 
       let packageId = editingPackageId;
@@ -1483,6 +1498,12 @@ export default function App() {
               Manage your venue's bookings
             </span>
           </h1>
+
+          {referredByVenue && (
+            <p className="text-sm text-accent bg-accent/10 border border-accent/30 rounded-xl px-4 py-2.5 mb-4">
+              You were invited by <span className="font-semibold">{referredByVenue.name}</span> to join PAXO as a partner.
+            </p>
+          )}
 
           <button
             type="button"
@@ -1776,6 +1797,7 @@ export default function App() {
           <div className="border border-stone-800 bg-stone-900/60 rounded-2xl p-5">
             <VenueSubmissionForm
               session={session}
+              referredByVenueId={referredByVenue?.id}
               onSubmitted={async () => {
                 await refreshVenue();
                 setScreen("dashboard");
@@ -2012,7 +2034,6 @@ export default function App() {
                   <span>
                     Deposit due {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
                   </span>
-                  {b.is_last_minute && <span className="text-rose-600 font-medium">Non-cancellable if accepted</span>}
                 </div>
 
                 {Array.isArray(b.booking_addon_requests) && b.booking_addon_requests.length > 0 && (
@@ -2927,6 +2948,29 @@ export default function App() {
                   })()}
                 </div>
 
+                <div>
+                  <label className="text-sm font-medium block mb-1">50% deposit discount</label>
+                  <p className="text-xs text-stone-400 mb-1.5">
+                    A separate incentive — if a customer pays a 50% deposit instead of 20% on this
+                    package, give them this much off the total package price. Independent of the
+                    offer/discount above.
+                  </p>
+                  <select
+                    className="border border-stone-300 rounded px-3 py-2 text-sm w-full sm:w-56"
+                    value={packageForm.deposit_50_discount_percent}
+                    onChange={(e) =>
+                      setPackageForm({ ...packageForm, deposit_50_discount_percent: parseInt(e.target.value, 10) })
+                    }
+                  >
+                    <option value={0}>No discount</option>
+                    {[3, 6, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((pct) => (
+                      <option key={pct} value={pct}>
+                        {pct}% off
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {(() => {
                   const setQuota = (kind, patch) =>
                     setPackageForm((f) => ({
@@ -3139,6 +3183,11 @@ export default function App() {
                         {!!p.discount_percent && (
                           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
                             {p.discount_percent}% off
+                          </span>
+                        )}
+                        {!!p.deposit_50_discount_percent && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                            {p.deposit_50_discount_percent}% off on 50% deposit
                           </span>
                         )}
                       </div>
@@ -3519,22 +3568,27 @@ export default function App() {
                     label: "Invite a friend",
                     hint: "For guests who love your venue",
                     code: partnerVenue?.venues?.invite_friend_code,
+                    base: CUSTOMER_APP_URL,
                     path: "invite/friend",
                   },
                   {
                     label: "Invite a partner",
                     hint: "For other venue owners you know",
                     code: partnerVenue?.venues?.invite_partner_code,
+                    // Goes to THIS app's own signup (partner.mypaxo.in), not the
+                    // customer app — it's a prospective venue owner, not a guest.
+                    base: window.location.origin,
                     path: "invite/partner",
                   },
                   {
                     label: `View ${partnerVenue?.venues?.name || "venue"}`,
                     hint: "Straight to your venue page",
                     code: partnerVenue?.venues?.venue_view_code,
+                    base: CUSTOMER_APP_URL,
                     path: "v",
                   },
-                ].map(({ label, hint, code, path }) => {
-                  const url = code ? `${CUSTOMER_APP_URL}/${path}/${code}` : null;
+                ].map(({ label, hint, code, base, path }) => {
+                  const url = code ? `${base}/${path}/${code}` : null;
                   return (
                     <div key={path} className="border border-stone-200 rounded-lg p-3 text-center flex flex-col items-center gap-2">
                       <p className="text-sm font-medium">{label}</p>

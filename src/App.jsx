@@ -5,6 +5,8 @@ import { sb, SUPABASE_URL } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
+const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://paxo-customer-app.vercel.app";
+
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
@@ -3505,6 +3507,61 @@ export default function App() {
                 {venueTermsSaving ? "Saving…" : "Save terms"}
               </button>
             </form>
+
+            <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">
+              <h2 className="text-sm font-medium mb-1">Grow &amp; share</h2>
+              <p className="text-stone-500 text-xs mb-4">
+                Print these or share the links — each one tracks who it came from.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  {
+                    label: "Invite a friend",
+                    hint: "For guests who love your venue",
+                    code: partnerVenue?.venues?.invite_friend_code,
+                    path: "invite/friend",
+                  },
+                  {
+                    label: "Invite a partner",
+                    hint: "For other venue owners you know",
+                    code: partnerVenue?.venues?.invite_partner_code,
+                    path: "invite/partner",
+                  },
+                  {
+                    label: `View ${partnerVenue?.venues?.name || "venue"}`,
+                    hint: "Straight to your venue page",
+                    code: partnerVenue?.venues?.venue_view_code,
+                    path: "v",
+                  },
+                ].map(({ label, hint, code, path }) => {
+                  const url = code ? `${CUSTOMER_APP_URL}/${path}/${code}` : null;
+                  return (
+                    <div key={path} className="border border-stone-200 rounded-lg p-3 text-center flex flex-col items-center gap-2">
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-stone-400 text-[11px] -mt-1">{hint}</p>
+                      {url ? (
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}`}
+                          alt={`${label} QR code`}
+                          width={160}
+                          height={160}
+                          className="rounded"
+                        />
+                      ) : (
+                        <div className="w-[160px] h-[160px] bg-stone-100 rounded flex items-center justify-center text-stone-400 text-xs">
+                          Not available
+                        </div>
+                      )}
+                      {url && (
+                        <a href={url} target="_blank" rel="noreferrer" className="text-accent-ink text-xs break-all hover:underline">
+                          {url}
+                        </a>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
             <div className="mt-6 flex items-center gap-3">
               <span className="text-xs text-stone-500">Paxo official channels</span>

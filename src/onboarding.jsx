@@ -35,6 +35,22 @@ export const VENUE_STATUS_LABELS = {
   rejected: "Rejected",
 };
 
+const AGREEMENT_POLICY_VERSION = "v1";
+
+async function recordAgreementAcceptance(session, venueId, checkpoint) {
+  await sb("/rest/v1/agreement_acceptances", {
+    method: "POST",
+    token: session.token,
+    prefer: "return=minimal",
+    body: {
+      venue_id: venueId,
+      checkpoint,
+      policy_version: AGREEMENT_POLICY_VERSION,
+      device_info: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    },
+  });
+}
+
 const inputCls =
   "bg-stone-900 border border-white/10 rounded-2xl px-4 py-3 text-sm placeholder-stone-500 text-white focus:outline-none focus:border-accent w-full";
 const labelCls = "text-xs font-medium text-stone-300 mb-1 block";
@@ -73,6 +89,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [agreed, setAgreed] = useState(isResubmit);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   async function submit(e) {
@@ -84,6 +101,10 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
         setError("Please fill in all required fields.");
         return;
       }
+    }
+    if (!isResubmit && !agreed) {
+      setError("Please accept the Partner Agreement to continue.");
+      return;
     }
     setSaving(true);
     try {
@@ -140,6 +161,7 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
             phone: f.contact_phone.trim(),
           },
         });
+        await recordAgreementAcceptance(session, venueId, "registration");
       }
       await onSubmitted();
     } catch (err) {
@@ -226,10 +248,22 @@ export function VenueSubmissionForm({ session, initial, onSubmitted, onCancel })
         <textarea rows={3} className={inputCls} value={f.description} onChange={set("description")} />
       </Field>
 
+      {!isResubmit && (
+        <label className="flex items-start gap-2 text-xs text-stone-300">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+          />
+          <span>I agree to PAXO's Partner Agreement and Terms of Service.</span>
+        </label>
+      )}
+
       {error && <p className="text-rose-400 text-sm">{error}</p>}
       <div className="flex gap-2 mt-1">
         <button
-          disabled={saving}
+          disabled={saving || (!isResubmit && !agreed)}
           className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50"
         >
           {saving ? "Submitting…" : isResubmit ? "Resubmit for review" : "Submit for review"}
@@ -252,6 +286,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
   const [fssaiFile, setFssaiFile] = useState(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [declared, setDeclared] = useState(false);
 
   const hasGstDoc = !!venue.gst_document_url;
 
@@ -264,6 +299,10 @@ function DocumentsForm({ session, venue, onSubmitted }) {
     }
     if (!hasGstDoc && !gstFile) {
       setError("Please upload your GST document.");
+      return;
+    }
+    if (!declared) {
+      setError("Please confirm the declaration to continue.");
       return;
     }
     setSaving(true);
@@ -279,6 +318,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
         prefer: "return=minimal",
         body,
       });
+      await recordAgreementAcceptance(session, venue.id, "detailed_declaration");
       await onSubmitted();
     } catch (err) {
       setError(err.message);
@@ -310,9 +350,19 @@ function DocumentsForm({ session, venue, onSubmitted }) {
         <input type="file" className={fileCls} accept="image/*,application/pdf" onChange={(e) => setFssaiFile(e.target.files[0] || null)} />
       </Field>
 
+      <label className="flex items-start gap-2 text-xs text-stone-300">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={declared}
+          onChange={(e) => setDeclared(e.target.checked)}
+        />
+        <span>I declare that all details and documents submitted are accurate and belong to this venue.</span>
+      </label>
+
       {error && <p className="text-rose-400 text-sm">{error}</p>}
       <button
-        disabled={saving}
+        disabled={saving || !declared}
         className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50 mt-1 self-start"
       >
         {saving ? "Uploading…" : "Submit documents"}

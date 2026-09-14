@@ -374,6 +374,13 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
+  const toggleGstVerified = () =>
+    patch(
+      venue.gst_verified
+        ? { gst_verified: false, gst_verified_at: null, gst_verified_by: null }
+        : { gst_verified: true, gst_verified_at: nowIso(), gst_verified_by: session.userId },
+      venue.gst_verified ? "gst_unverify" : "gst_verify"
+    );
   // PostgREST returns this embed as a single object (the FK resolves to-one),
   // not an array — tolerate both shapes.
   const partner = Array.isArray(venue.partner_users)
@@ -429,6 +436,31 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
             <DocLink path={venue.gst_document_url} label="GST document" onView={setViewingDoc} />
             <DocLink path={venue.liquor_license_url} label="Liquor license" onView={setViewingDoc} />
             <DocLink path={venue.fssai_license_url} label="FSSAI license" onView={setViewingDoc} />
+            <div className="flex items-center justify-between gap-3 pt-2 mt-1 border-t border-stone-100">
+              <div>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full ${
+                    venue.gst_verified ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"
+                  }`}
+                >
+                  {venue.gst_verified ? "GST verified" : "GST not verified"}
+                </span>
+                {venue.gst_verified && venue.gst_verified_at && (
+                  <span className="text-xs text-stone-400 ml-2">on {fmtDate(venue.gst_verified_at)}</span>
+                )}
+              </div>
+              <button
+                onClick={toggleGstVerified}
+                disabled={busy}
+                className={`text-xs rounded px-3 py-1.5 disabled:opacity-50 ${
+                  venue.gst_verified
+                    ? "border border-stone-300 text-stone-600"
+                    : "bg-emerald-600 text-white"
+                }`}
+              >
+                {venue.gst_verified ? "Mark unverified" : "Mark GST verified"}
+              </button>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-amber-700">Awaiting documents from partner.</p>
@@ -735,6 +767,7 @@ function Settlements({ session }) {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("pending");
   const [confirming, setConfirming] = useState(null); // payment row awaiting confirmation
+  const [settleNotes, setSettleNotes] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [viewingReceipt, setViewingReceipt] = useState(null); // payment row awaiting the receipt view
@@ -745,7 +778,7 @@ function Settlements({ session }) {
     try {
       const data = await sb(
         "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
-          "partner_payout_amount,paid_at,settlement_status,settled_at,payment_type," +
+          "partner_payout_amount,paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
           "contact_email,venues(id,name),venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
@@ -772,10 +805,16 @@ function Settlements({ session }) {
         method: "PATCH",
         token: session.token,
         prefer: "return=representation",
-        body: { settlement_status: "settled", settled_at: nowIso() },
+        body: {
+          settlement_status: "settled",
+          settled_at: nowIso(),
+          settlement_reviewed_by: session.userId,
+          settlement_notes: settleNotes.trim() || null,
+        },
       });
       setRows((rs) => rs.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
       setConfirming(null);
+      setSettleNotes("");
     } catch (e) {
       setError(e.message);
     } finally {
@@ -857,7 +896,10 @@ function Settlements({ session }) {
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.paid_at)}</td>
                   <td className="px-4 py-2.5">
                     {p.settlement_status === "settled" ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
+                        title={p.settlement_notes || undefined}
+                      >
                         Settled · {fmtDate(p.settled_at)}
                       </span>
                     ) : (
@@ -895,22 +937,32 @@ function Settlements({ session }) {
       {confirming && (
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-          onClick={() => setConfirming(null)}
+          onClick={() => { setConfirming(null); setSettleNotes(""); }}
         >
           <div
             className="bg-white rounded-lg max-w-sm w-full p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="font-medium mb-1">Mark this settlement complete?</p>
-            <p className="text-sm text-slate-600 mb-4">
+            <p className="text-sm text-slate-600 mb-3">
               Confirm you've transferred {inr(confirming.partner_payout_amount)} to{" "}
               {confirming.bookings?.venues?.name || "this partner"}. This only records that the bank
               transfer has actually happened — it doesn't move any money.
             </p>
+            <label className="text-xs font-medium text-slate-600 block mb-1">
+              Review notes (optional)
+            </label>
+            <textarea
+              rows={2}
+              className="border border-slate-300 rounded px-3 py-2 text-sm w-full mb-4"
+              placeholder="e.g. UTR reference, anything worth flagging"
+              value={settleNotes}
+              onChange={(e) => setSettleNotes(e.target.value)}
+            />
             {error && <p className="text-rose-600 text-sm mb-2">{error}</p>}
             <div className="flex gap-2 justify-end">
               <button
-                onClick={() => setConfirming(null)}
+                onClick={() => { setConfirming(null); setSettleNotes(""); }}
                 className="text-sm text-slate-500 px-3 py-1.5"
               >
                 Cancel

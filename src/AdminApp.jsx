@@ -372,6 +372,9 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   const approvePlain = () =>
     patch({ status: "approved", is_verified: false, approved_at: nowIso(), reviewed_at: nowIso() }, "approve_unverified");
 
+  const clearOnHold = () =>
+    patch({ on_hold: false, on_hold_reason: null, timeout_strike_count: 0 }, "clear_on_hold");
+
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
   const toggleGstVerified = () =>
@@ -404,6 +407,31 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         </div>
         <StatusBadge status={venue.status} verified={venue.is_verified} />
       </div>
+
+      {(venue.on_hold || venue.timeout_strike_count > 0) && (
+        <div className={`border rounded-lg p-4 mb-4 ${venue.on_hold ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className={`text-sm font-medium ${venue.on_hold ? "text-rose-800" : "text-amber-800"}`}>
+                {venue.on_hold ? "On hold — not accepting new booking requests" : "Missed response-window strikes"}
+              </p>
+              <p className="text-xs text-stone-500 mt-0.5">
+                {venue.timeout_strike_count || 0} timeout strike{venue.timeout_strike_count === 1 ? "" : "s"}
+                {venue.on_hold_reason ? ` · ${venue.on_hold_reason}` : ""}
+              </p>
+            </div>
+            {venue.on_hold && (
+              <button
+                onClick={clearOnHold}
+                disabled={busy}
+                className="text-xs bg-stone-900 text-white rounded px-3 py-1.5 disabled:opacity-50 shrink-0"
+              >
+                Clear hold
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
         <StatusStepper venue={venue} />
@@ -1068,9 +1096,10 @@ function RequestDetail({ booking: b, onBack }) {
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Timeline</h3>
         <Row label="Requested" value={fmtDateTime(b.requested_at)} />
-        <Row label="Response deadline" value={fmtDateTime(b.response_deadline)} />
+        <Row label="Booking type" value={b.booking_type ? b.booking_type[0].toUpperCase() + b.booking_type.slice(1) : "—"} />
+        <Row label="Partner response deadline" value={fmtDateTime(b.partner_response_deadline)} />
         <Row label="Responded" value={fmtDateTime(b.responded_at)} />
-        <Row label="Last-minute booking" value={b.is_last_minute ? "Yes" : "No"} />
+        <Row label="Payment deadline" value={fmtDateTime(b.payment_deadline)} />
         <Row label="Menu finalized" value={fmtDateTime(b.menu_finalized_at)} />
         <Row label="Check-in OTP generated" value={fmtDateTime(b.checkin_otp_generated_at)} />
         <Row label="Event started (checked in)" value={fmtDateTime(b.event_started_at)} />
@@ -2083,7 +2112,8 @@ function Requests({ session }) {
     try {
       const data = await sb(
         "/rest/v1/bookings?select=id,booking_ref,event_date,headcount,status,requested_at,responded_at," +
-          "response_deadline,is_last_minute,total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
+          "response_deadline,is_last_minute,booking_type,partner_response_deadline,payment_deadline," +
+          "total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
           "contact_email,rejection_reason,cancellation_reason,cancelled_at,menu_finalized_at," +
           "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
           "special_request,venues(name),venue_packages(name)," +

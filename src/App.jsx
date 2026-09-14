@@ -15,6 +15,8 @@ function minutesLeft(deadline) {
   return Math.round(ms / 60000);
 }
 
+const BOOKING_TYPE_LABELS = { standard: "Standard", secure: "Secure", instant: "Instant" };
+
 const statusColor = {
   pending: "bg-amber-100 text-amber-800",
   accepted: "bg-blue-100 text-blue-800",
@@ -1965,7 +1967,7 @@ export default function App() {
 
         <div className="flex flex-col gap-3">
           {filtered.map((b) => {
-            const mins = b.status === "pending" ? minutesLeft(b.response_deadline) : null;
+            const mins = b.status === "pending" ? minutesLeft(b.partner_response_deadline) : null;
             return (
               <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white">
                 <div className="flex items-start justify-between gap-3 mb-4">
@@ -2014,8 +2016,8 @@ export default function App() {
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-stone-400">Booking type</span>
-                    <span className={b.is_last_minute ? "font-bold text-rose-600" : "font-medium text-stone-700"}>
-                      {b.is_last_minute ? "Express Booking" : "Advance Booking"}
+                    <span className={b.booking_type === "instant" ? "font-bold text-rose-600" : "font-medium text-stone-700"}>
+                      {BOOKING_TYPE_LABELS[b.booking_type] || b.booking_type || "—"}
                     </span>
                   </div>
                   {b.special_request && (
@@ -2111,7 +2113,7 @@ export default function App() {
                   <>
                     {mins !== null && (
                       <p className={`text-xs mb-2 ${mins < 30 ? "text-rose-600" : "text-stone-400"}`}>
-                        {mins > 0 ? `Respond within ${mins} min` : "Response window passed — auto-reject pending"}
+                        {mins > 0 ? `Respond within ${mins} min` : "Response window passed — this request will be auto-cancelled"}
                       </p>
                     )}
                     {rejectingId === b.id ? (

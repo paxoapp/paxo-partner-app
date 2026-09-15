@@ -2648,7 +2648,7 @@ export default function App() {
             <p className="text-stone-500 text-sm mb-6">Deposit settlement status for {partnerVenue?.venues?.name}.</p>
 
             <div className="bg-white border border-stone-200 rounded-lg p-4 mb-6 max-w-sm">
-              <p className="text-xs text-stone-500">Pending settlement (accepted, unpaid)</p>
+              <p className="text-xs text-stone-500">Projected — awaiting customer payment</p>
               <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
             </div>
 
@@ -2669,7 +2669,7 @@ export default function App() {
                       b.status === "accepted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
                     }`}
                   >
-                    {b.status === "accepted" ? "Pending settlement" : "Settled"}
+                    {b.status === "accepted" ? "Awaiting customer payment" : "Settled"}
                   </span>
                 </div>
               ))}

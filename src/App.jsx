@@ -148,6 +148,91 @@ function bookingSelectionGroups(booking, categories) {
     .sort((a, b) => a.kind.localeCompare(b.kind));
 }
 
+// bookingSelectionGroups(), split into Food/Beverage and reordered by the
+// fixed category order (not alphabetically) — shared by the Upcoming Events
+// card and the booking detail view so the grouping logic lives in one place.
+function groupedFinalizedMenu(booking, categories) {
+  const groups = bookingSelectionGroups(booking, categories);
+  const orderIndex = (orderedKinds, kind) => {
+    const i = orderedKinds.indexOf(kind);
+    return i === -1 ? 999 : i;
+  };
+  const foodOrder = FOOD_QUOTA_CATEGORIES.map(([k]) => k);
+  const bevOrder = BEVERAGE_QUOTA_CATEGORIES.map(([k]) => k);
+  const foodGroups = groups
+    .filter((g) => FOOD_KINDS.includes(g.kind))
+    .sort((a, b) => orderIndex(foodOrder, a.kind) - orderIndex(foodOrder, b.kind));
+  const beverageGroups = groups
+    .filter((g) => BEVERAGE_KINDS.includes(g.kind))
+    .sort((a, b) => orderIndex(bevOrder, a.kind) - orderIndex(bevOrder, b.kind));
+  return { foodGroups, beverageGroups };
+}
+
+// Renders the Food/Beverage headed lists (or the "not finalized" fallback).
+// Shared by the Upcoming Events card (inside its collapsible toggle) and the
+// booking detail view (always expanded there).
+function FinalizedMenuBody({ booking, categories }) {
+  if (!booking.menu_finalized_at) {
+    return <p className="text-xs text-stone-500">Menu not yet finalized.</p>;
+  }
+  const { foodGroups, beverageGroups } = groupedFinalizedMenu(booking, categories);
+  const renderGroup = (g) => (
+    <div key={g.kind}>
+      <p className="text-sm font-medium text-stone-700">{quotaLabel(g.kind, g.names.length)}</p>
+      <ul className="list-disc pl-5 text-sm text-stone-600">
+        {g.names.map((n, i) => (
+          <li key={i}>{n}</li>
+        ))}
+      </ul>
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      {foodGroups.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">Food</p>
+          <div className="flex flex-col gap-1.5">{foodGroups.map(renderGroup)}</div>
+        </div>
+      )}
+      {beverageGroups.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">Beverages</p>
+          <div className="flex flex-col gap-1.5">{beverageGroups.map(renderGroup)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One clear sentence reflecting the booking's actual current state — used by
+// the booking detail view so a customer cancellation (or any other status
+// change) is never silently implied to still be "confirmed."
+function bookingStatusLine(b) {
+  if (b.status === "cancelled") {
+    const who = b.cancelled_by === "customer" ? "Cancelled by customer" : b.cancelled_by === "admin" ? "Cancelled by admin" : "Cancelled";
+    return b.cancellation_reason ? `${who} — ${b.cancellation_reason}` : who;
+  }
+  if (b.status === "completed") return "Completed.";
+  if (b.status === "no_show") return "Marked as no-show.";
+  if (b.status === "payment_expired") return "Payment window expired — booking released.";
+  if (b.status === "rejected") return b.rejection_reason ? `Rejected — ${b.rejection_reason}` : "Rejected.";
+  if (b.status === "pending") return "Pending — awaiting your response.";
+  if (b.status === "confirmed") {
+    if (b.event_started_at) {
+      const t = new Date(b.event_started_at).toLocaleString("en-IN", {
+        day: "numeric",
+        month: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      return `Checked in at ${t} — remaining balance due now.`;
+    }
+    return "Confirmed — customer will pay the remaining balance at check-in.";
+  }
+  if (b.status === "accepted") return "Accepted — awaiting customer payment.";
+  return b.status;
+}
+
 // Admin-set venue-wide status, shown persistently while it's anything other
 // than "active". On hold: hidden from customers only, partner keeps full
 // access. Deactivated: also hidden from customers, with a PAXO contact so the
@@ -208,6 +293,8 @@ export default function App() {
   const [checkinInput, setCheckinInput] = useState({}); // keyed by booking id
   const [checkinError, setCheckinError] = useState({}); // keyed by booking id
   const [checkinBusyId, setCheckinBusyId] = useState(null);
+  const [menuExpanded, setMenuExpanded] = useState({}); // { [bookingId]: true } — Finalized menu open; collapsed by default
+  const [detailBookingId, setDetailBookingId] = useState(null); // booking id shown in the detail view
 
   const [claimVenuePending, setClaimVenuePending] = useState(""); // used on the post-Google "claim venue" screen
 
@@ -628,7 +715,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)`,
           { token }
         ),
       ]);
@@ -2307,9 +2394,13 @@ export default function App() {
                           <p className="text-sm text-stone-600">
                             {b.event_date} at {b.event_time}
                           </p>
-                          <p className="text-xs text-stone-400 font-mono mt-1.5">
-                            {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
-                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setDetailBookingId(b.id)}
+                            className="text-xs text-accent-ink font-mono mt-1.5 hover:underline"
+                          >
+                            {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`} · View details
+                          </button>
                         </div>
                         <span
                           className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${
@@ -2373,62 +2464,40 @@ export default function App() {
                         </div>
                       )}
 
-                      {confirmed && (
-                        <div className="border border-stone-200 rounded-lg p-3 mb-4">
-                          <p className="text-sm font-semibold text-stone-500 mb-1.5">
-                            Finalized menu
-                          </p>
-                          {b.menu_finalized_at ? (() => {
-                            const groups = bookingSelectionGroups(b, categories);
-                            const orderIndex = (orderedKinds, kind) => {
-                              const i = orderedKinds.indexOf(kind);
-                              return i === -1 ? 999 : i;
-                            };
-                            const foodOrder = FOOD_QUOTA_CATEGORIES.map(([k]) => k);
-                            const bevOrder = BEVERAGE_QUOTA_CATEGORIES.map(([k]) => k);
-                            const foodGroups = groups
-                              .filter((g) => FOOD_KINDS.includes(g.kind))
-                              .sort((a, b2) => orderIndex(foodOrder, a.kind) - orderIndex(foodOrder, b2.kind));
-                            const beverageGroups = groups
-                              .filter((g) => BEVERAGE_KINDS.includes(g.kind))
-                              .sort((a, b2) => orderIndex(bevOrder, a.kind) - orderIndex(bevOrder, b2.kind));
-                            const renderGroup = (g) => (
-                              <div key={g.kind}>
-                                <p className="text-sm font-medium text-stone-700">
-                                  {quotaLabel(g.kind, g.names.length)}
-                                </p>
-                                <ul className="list-disc pl-5 text-sm text-stone-600">
-                                  {g.names.map((n, i) => (
-                                    <li key={i}>{n}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            );
-                            return (
-                              <div className="flex flex-col gap-3">
-                                {foodGroups.length > 0 && (
-                                  <div>
-                                    <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">
-                                      Food
-                                    </p>
-                                    <div className="flex flex-col gap-1.5">{foodGroups.map(renderGroup)}</div>
-                                  </div>
-                                )}
-                                {beverageGroups.length > 0 && (
-                                  <div>
-                                    <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">
-                                      Beverages
-                                    </p>
-                                    <div className="flex flex-col gap-1.5">{beverageGroups.map(renderGroup)}</div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })() : (
-                            <p className="text-xs text-stone-500">Menu not yet finalized.</p>
-                          )}
-                        </div>
-                      )}
+                      {confirmed && (() => {
+                        const expanded = !!menuExpanded[b.id];
+                        return (
+                          <div className="border border-stone-200 rounded-lg p-3 mb-4">
+                            {b.menu_finalized_at ? (
+                              <button
+                                type="button"
+                                aria-expanded={expanded}
+                                onClick={() => setMenuExpanded((m) => ({ ...m, [b.id]: !expanded }))}
+                                className="flex items-center gap-2 text-sm font-semibold text-stone-500 hover:text-stone-700"
+                              >
+                                <span
+                                  aria-hidden
+                                  className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-stone-300 text-sm leading-none"
+                                >
+                                  {expanded ? "−" : "+"}
+                                </span>
+                                Finalized menu
+                              </button>
+                            ) : (
+                              <p className="text-sm font-semibold text-stone-500 mb-1.5">Finalized menu</p>
+                            )}
+                            {b.menu_finalized_at ? (
+                              expanded && (
+                                <div className="mt-2">
+                                  <FinalizedMenuBody booking={b} categories={categories} />
+                                </div>
+                              )
+                            ) : (
+                              <p className="text-xs text-stone-500">Menu not yet finalized.</p>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       <p className="text-xs text-stone-500 mb-3">
                         Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
@@ -2464,6 +2533,63 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {detailBookingId && (() => {
+          const b = bookings.find((x) => x.id === detailBookingId);
+          if (!b) return null;
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Booking details"
+              onClick={() => setDetailBookingId(null)}
+            >
+              <div
+                className="bg-white rounded-xl max-w-md w-full p-5 shadow-xl max-h-[85vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h2 className="font-serif text-xl">Booking details</h2>
+                  <button
+                    type="button"
+                    onClick={() => setDetailBookingId(null)}
+                    className="text-stone-400 hover:text-stone-600 text-sm"
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="text-xs text-stone-400 font-mono mb-4">
+                  {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
+                </p>
+
+                <dl className="text-sm flex flex-col gap-2 mb-4">
+                  <div>
+                    <dt className="text-stone-400 text-xs">Customer Name</dt>
+                    <dd className="text-stone-800 font-medium">{b.contact_name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-400 text-xs">Event Date</dt>
+                    <dd className="text-stone-800 font-medium">{b.event_date}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-400 text-xs">Event Slot</dt>
+                    <dd className="text-stone-800 font-medium">{b.event_time}</dd>
+                  </div>
+                </dl>
+
+                <div className="border-t border-stone-200 pt-3 mb-3">
+                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Finalized menu</p>
+                  <FinalizedMenuBody booking={b} categories={categories} />
+                </div>
+
+                <div className="border-t border-stone-200 pt-3">
+                  <p className="text-sm text-stone-700">{bookingStatusLine(b)}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {screen === "menu" && (
           <div>

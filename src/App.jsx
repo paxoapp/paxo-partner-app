@@ -2378,22 +2378,53 @@ export default function App() {
                           <p className="text-sm font-semibold text-stone-500 mb-1.5">
                             Finalized menu
                           </p>
-                          {b.menu_finalized_at ? (
-                            <div className="flex flex-col gap-1.5">
-                              {bookingSelectionGroups(b, categories).map((g) => (
-                                <div key={g.kind}>
-                                  <p className="text-sm font-medium text-stone-700">
-                                    {quotaLabel(g.kind, g.names.length)}
-                                  </p>
-                                  <ul className="list-disc pl-5 text-sm text-stone-600">
-                                    {g.names.map((n, i) => (
-                                      <li key={i}>{n}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
+                          {b.menu_finalized_at ? (() => {
+                            const groups = bookingSelectionGroups(b, categories);
+                            const orderIndex = (orderedKinds, kind) => {
+                              const i = orderedKinds.indexOf(kind);
+                              return i === -1 ? 999 : i;
+                            };
+                            const foodOrder = FOOD_QUOTA_CATEGORIES.map(([k]) => k);
+                            const bevOrder = BEVERAGE_QUOTA_CATEGORIES.map(([k]) => k);
+                            const foodGroups = groups
+                              .filter((g) => FOOD_KINDS.includes(g.kind))
+                              .sort((a, b2) => orderIndex(foodOrder, a.kind) - orderIndex(foodOrder, b2.kind));
+                            const beverageGroups = groups
+                              .filter((g) => BEVERAGE_KINDS.includes(g.kind))
+                              .sort((a, b2) => orderIndex(bevOrder, a.kind) - orderIndex(bevOrder, b2.kind));
+                            const renderGroup = (g) => (
+                              <div key={g.kind}>
+                                <p className="text-sm font-medium text-stone-700">
+                                  {quotaLabel(g.kind, g.names.length)}
+                                </p>
+                                <ul className="list-disc pl-5 text-sm text-stone-600">
+                                  {g.names.map((n, i) => (
+                                    <li key={i}>{n}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                            return (
+                              <div className="flex flex-col gap-3">
+                                {foodGroups.length > 0 && (
+                                  <div>
+                                    <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">
+                                      Food
+                                    </p>
+                                    <div className="flex flex-col gap-1.5">{foodGroups.map(renderGroup)}</div>
+                                  </div>
+                                )}
+                                {beverageGroups.length > 0 && (
+                                  <div>
+                                    <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">
+                                      Beverages
+                                    </p>
+                                    <div className="flex flex-col gap-1.5">{beverageGroups.map(renderGroup)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })() : (
                             <p className="text-xs text-stone-500">Menu not yet finalized.</p>
                           )}
                         </div>

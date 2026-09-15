@@ -233,6 +233,15 @@ function bookingStatusLine(b) {
   return b.status;
 }
 
+// Upcoming Events keeps a cancelled booking visible for as long as its
+// original event date/time is still in the future — so a customer
+// cancellation after payment doesn't just vanish the card, taking View
+// details / Finalized menu with it. Once the original event time passes it
+// drops off naturally like any other past booking.
+const isUpcoming = (b) =>
+  ["accepted", "confirmed"].includes(b.status) ||
+  (b.status === "cancelled" && new Date(`${b.event_date}T${b.event_time}`).getTime() > Date.now());
+
 // Admin-set venue-wide status, shown persistently while it's anything other
 // than "active". On hold: hidden from customers only, partner keeps full
 // access. Deactivated: also hidden from customers, with a PAXO contact so the
@@ -2374,15 +2383,16 @@ export default function App() {
             <p className="text-stone-500 text-sm mb-6">Accepted and confirmed bookings for {partnerVenue?.venues?.name}.</p>
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
             <div className="flex flex-col gap-3">
-              {bookings.filter((b) => ["accepted", "confirmed"].includes(b.status)).length === 0 && (
+              {bookings.filter(isUpcoming).length === 0 && (
                 <p className="text-stone-400 text-sm">No upcoming bookings yet.</p>
               )}
               {bookings
-                .filter((b) => ["accepted", "confirmed"].includes(b.status))
+                .filter(isUpcoming)
                 .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
                 .map((b) => {
                   const eventPassed = new Date(`${b.event_date}T${b.event_time}`).getTime() < Date.now();
                   const confirmed = b.status === "confirmed";
+                  const cancelled = b.status === "cancelled";
                   return (
                     <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white">
                       <div className="flex items-start justify-between gap-3 mb-4">
@@ -2404,7 +2414,11 @@ export default function App() {
                         </div>
                         <span
                           className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${
-                            confirmed ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
+                            confirmed
+                              ? "bg-emerald-100 text-emerald-800"
+                              : cancelled
+                              ? "bg-rose-100 text-rose-800"
+                              : "bg-blue-100 text-blue-800"
                           }`}
                         >
                           {b.status}
@@ -2464,7 +2478,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {confirmed && (() => {
+                      {(confirmed || cancelled) && (() => {
                         const expanded = !!menuExpanded[b.id];
                         return (
                           <div className="border border-stone-200 rounded-lg p-3 mb-4">
@@ -2499,10 +2513,12 @@ export default function App() {
                         );
                       })()}
 
-                      <p className="text-xs text-stone-500 mb-3">
-                        Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
-                      </p>
-                      {confirmed ? (
+                      {!cancelled && (
+                        <p className="text-xs text-stone-500 mb-3">
+                          Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
+                        </p>
+                      )}
+                      {cancelled ? null : confirmed ? (
                         eventPassed ? (
                           <button
                             disabled={actionLoading === b.id}

@@ -26,7 +26,13 @@ const statusColor = {
   cancelled: "bg-rose-100 text-rose-800",
   unconfirmed: "bg-stone-200 text-stone-800",
   no_show: "bg-rose-100 text-rose-800",
+  payment_expired: "bg-stone-200 text-stone-700",
 };
+
+// One shared status-pill color mapping for every screen (Requests, Upcoming
+// Events) — same status always looks the same, instead of each screen
+// picking its own ad-hoc colors.
+const statusBadgeClass = (status) => statusColor[status] || "bg-stone-100 text-stone-600";
 
 // A pending request "conflicts" when the venue already has a committed
 // (accepted / confirmed) booking on the same calendar date. Same-date is the
@@ -1915,7 +1921,16 @@ export default function App() {
     );
   }
 
-  const filtered = bookings.filter((b) => activeTab === "all" || b.status === activeTab);
+  // Pending/Rejected/All keep the API's requested_at.desc order (newest
+  // request first); Accepted/Cancelled sort by event date instead, soonest
+  // first — same convention as Upcoming Events.
+  const filtered = bookings
+    .filter((b) => activeTab === "all" || b.status === activeTab)
+    .sort((a, b) =>
+      activeTab === "accepted" || activeTab === "cancelled"
+        ? new Date(`${a.event_date}T${a.event_time}`) - new Date(`${b.event_date}T${b.event_time}`)
+        : 0
+    );
   const pendingCount = bookings.filter((b) => b.status === "pending").length;
   const upcomingCount = bookings.filter((b) => b.status === "accepted").length;
   const menuSectionKinds = menuSection === "food" ? FOOD_KINDS : BEVERAGE_KINDS;
@@ -2075,7 +2090,7 @@ export default function App() {
                     <p className="text-sm text-stone-600">{b.event_date} at {b.event_time}</p>
                     <p className="text-xs text-stone-400 font-mono mt-1.5">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
                   </div>
-                  <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusColor[b.status]}`}>
+                  <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusBadgeClass(b.status)}`}>
                     {b.status.replace("_", " ")}
                   </span>
                 </div>
@@ -2380,7 +2395,9 @@ export default function App() {
         {screen === "upcoming" && (
           <div>
             <h1 className="font-serif text-3xl mb-1">Upcoming Events</h1>
-            <p className="text-stone-500 text-sm mb-6">Accepted and confirmed bookings for {partnerVenue?.venues?.name}.</p>
+            <p className="text-stone-500 text-sm mb-6">
+              Your upcoming events for {partnerVenue?.venues?.name} — including any recently cancelled.
+            </p>
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
             <div className="flex flex-col gap-3">
               {bookings.filter(isUpcoming).length === 0 && (
@@ -2413,13 +2430,7 @@ export default function App() {
                           </button>
                         </div>
                         <span
-                          className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${
-                            confirmed
-                              ? "bg-emerald-100 text-emerald-800"
-                              : cancelled
-                              ? "bg-rose-100 text-rose-800"
-                              : "bg-blue-100 text-blue-800"
-                          }`}
+                          className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusBadgeClass(b.status)}`}
                         >
                           {b.status}
                         </span>
@@ -2828,7 +2839,7 @@ export default function App() {
             {bookingsLoading && <p className="text-stone-400 text-sm">Loading…</p>}
             <div className="flex flex-col gap-3">
               {settlementBookings.map((b) => (
-                <div key={b.id} className="border border-stone-200 rounded-lg p-4 bg-white flex items-center justify-between gap-4">
+                <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs text-stone-400 font-mono">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
                     <p className="font-medium">{b.venue_packages?.name}</p>

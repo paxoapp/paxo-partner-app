@@ -2831,7 +2831,7 @@ export default function App() {
             <h1 className="font-serif text-3xl mb-1">Payments</h1>
             <p className="text-stone-500 text-sm mb-6">Deposit settlement status for {partnerVenue?.venues?.name}.</p>
 
-            <div className="bg-white border border-stone-200 rounded-lg p-4 mb-6 max-w-sm">
+            <div className="bg-white border border-stone-200 rounded-xl p-5 mb-6 max-w-sm">
               <p className="text-xs text-stone-500">Projected — awaiting customer payment</p>
               <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
             </div>

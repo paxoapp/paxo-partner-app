@@ -11,8 +11,17 @@ const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 function minutesLeft(deadline) {
+  if (!deadline) return null;
   const ms = new Date(deadline).getTime() - Date.now();
   return Math.round(ms / 60000);
+}
+
+function formatCountdown(totalMinutes) {
+  if (totalMinutes === null || totalMinutes <= 0) return null; // caller handles the "window passed" case
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins} min`;
 }
 
 const BOOKING_TYPE_LABELS = { standard: "Standard", secure: "Secure", instant: "Instant" };
@@ -281,6 +290,17 @@ function VenueStateBanner({ venue }) {
 }
 
 export default function App() {
+  // Forces a re-render every 30s so minutesLeft()-driven countdowns (partner
+  // response window, etc.) tick down live instead of freezing until an
+  // unrelated re-render — minutesLeft() already computes fresh off
+  // Date.now(), this just makes sure something asks it to recompute
+  // periodically.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
   const [screen, setScreen] = useState("auth");
   const [session, setSession] = useState(null);
   const [authMode, setAuthMode] = useState("login");
@@ -2224,7 +2244,7 @@ export default function App() {
                   <>
                     {mins !== null && (
                       <p className={`text-xs mb-2 ${mins < 30 ? "text-rose-600" : "text-stone-400"}`}>
-                        {mins > 0 ? `Respond within ${mins} min` : "Response window passed — this request will be auto-cancelled"}
+                        {mins > 0 ? `Respond within ${formatCountdown(mins)}` : "Response window passed — this request will be auto-cancelled"}
                       </p>
                     )}
                     {rejectingId === b.id ? (

@@ -1620,6 +1620,7 @@ export default function App() {
             </svg>
             Back to PAXO
           </a>
+          <img src="/paxo-icon.png" alt="Paxo" className="h-12 w-12 rounded-xl mb-6" />
           <h1 className="font-bold leading-[1.05] tracking-tight mb-8">
             <span className="block text-4xl">
               <span className="text-white">Paxo</span> <span className="text-accent">Partner</span>

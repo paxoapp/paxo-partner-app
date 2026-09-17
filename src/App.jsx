@@ -2116,7 +2116,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
-      <header className="bg-slate-900 text-white">
+      <header className="bg-slate-900 text-white sticky top-0 z-30">
         <div className="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between gap-4">
           <div className="flex items-baseline gap-2 shrink-0">
             <span className="font-display text-2xl tracking-tight">Paxo</span>

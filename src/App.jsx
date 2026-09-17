@@ -257,6 +257,12 @@ const isUpcoming = (b) =>
   ["accepted", "confirmed"].includes(b.status) ||
   (b.status === "cancelled" && new Date(`${b.event_date}T${b.event_time}`).getTime() > Date.now());
 
+const bookingMatchesSearch = (b, q) => {
+  if (!q.trim()) return true;
+  const ref = (b.booking_ref || b.id.slice(0, 8).toUpperCase()).toLowerCase();
+  return ref.includes(q.trim().toLowerCase());
+};
+
 // Admin-set venue-wide status, shown persistently while it's anything other
 // than "active". On hold: hidden from customers only, partner keeps full
 // access. Deactivated: also hidden from customers, with a PAXO contact so the
@@ -349,6 +355,9 @@ export default function App() {
   const [newPasswordLoading, setNewPasswordLoading] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [upcomingTab, setUpcomingTab] = useState("upcoming");
+  const [upcomingSearch, setUpcomingSearch] = useState("");
+  const [requestsSearch, setRequestsSearch] = useState("");
   const [profileForm, setProfileForm] = useState({ full_name: "", phone: "" });
   const [venueTerms, setVenueTerms] = useState("");
   const [venueTermsSaved, setVenueTermsSaved] = useState(false);
@@ -1973,6 +1982,7 @@ export default function App() {
   // first — same convention as Upcoming Events.
   const filtered = bookings
     .filter((b) => activeTab === "all" || b.status === activeTab)
+    .filter((b) => bookingMatchesSearch(b, requestsSearch))
     .sort((a, b) =>
       activeTab === "accepted" || activeTab === "cancelled"
         ? new Date(`${a.event_date}T${a.event_time}`) - new Date(`${b.event_date}T${b.event_time}`)
@@ -2053,21 +2063,24 @@ export default function App() {
               {(session.email || "?").slice(0, 1).toUpperCase()}
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-10 w-48 bg-white text-stone-900 rounded-lg border border-stone-200 shadow-lg overflow-hidden z-10">
-                <p className="px-4 py-3 text-xs text-stone-400 border-b border-stone-100 truncate">{session.email}</p>
-                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50 sm:hidden" onClick={() => { setScreen("packages"); setMenuOpen(false); }}>
-                  Packages
-                </button>
-                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50" onClick={() => { setScreen("settings"); setMenuOpen(false); }}>
-                  Settings
-                </button>
-                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50" onClick={() => { setScreen("help"); setMenuOpen(false); }}>
-                  Help & support
-                </button>
-                <button className="w-full text-left px-4 py-2.5 text-sm text-rose-600 hover:bg-stone-50 border-t border-stone-100" onClick={logOut}>
-                  Log out
-                </button>
-              </div>
+              <>
+                <div className="fixed inset-0 z-[5]" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-10 w-48 bg-white text-stone-900 rounded-lg border border-stone-200 shadow-lg overflow-hidden z-10">
+                  <p className="px-4 py-3 text-xs text-stone-400 border-b border-stone-100 truncate">{session.email}</p>
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50 sm:hidden" onClick={() => { setScreen("packages"); setMenuOpen(false); }}>
+                    Packages
+                  </button>
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50" onClick={() => { setScreen("settings"); setMenuOpen(false); }}>
+                    Settings
+                  </button>
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-stone-50" onClick={() => { setScreen("help"); setMenuOpen(false); }}>
+                    Help & support
+                  </button>
+                  <button className="w-full text-left px-4 py-2.5 text-sm text-rose-600 hover:bg-stone-50 border-t border-stone-100" onClick={logOut}>
+                    Log out
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -2106,6 +2119,14 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        <input
+          type="text"
+          placeholder="Search by Booking ID"
+          value={requestsSearch}
+          onChange={(e) => setRequestsSearch(e.target.value)}
+          className="border border-stone-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs mb-4"
+        />
 
         {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
         {bookingsLoading && (
@@ -2442,16 +2463,44 @@ export default function App() {
         {screen === "upcoming" && (
           <div>
             <h1 className="font-serif text-3xl mb-1">Upcoming Events</h1>
-            <p className="text-stone-500 text-sm mb-6">
-              Your upcoming events for {partnerVenue?.venues?.name} — including any recently cancelled.
-            </p>
+            <p className="text-stone-500 text-sm mb-6">Your upcoming events for {partnerVenue?.venues?.name}.</p>
+
+            <div className="flex gap-2 mb-4">
+              {["upcoming", "cancelled"].map((t) => (
+                <button
+                  key={t}
+                  className={`text-sm px-3 py-1.5 rounded-full border capitalize ${
+                    upcomingTab === t ? "bg-slate-900 text-white border-slate-900" : "border-stone-300 text-stone-600"
+                  }`}
+                  onClick={() => setUpcomingTab(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="text"
+              placeholder="Search by Booking ID"
+              value={upcomingSearch}
+              onChange={(e) => setUpcomingSearch(e.target.value)}
+              className="border border-stone-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs mb-5"
+            />
+
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
             <div className="flex flex-col gap-3">
-              {bookings.filter(isUpcoming).length === 0 && (
-                <p className="text-stone-400 text-sm">No upcoming bookings yet.</p>
+              {bookings
+                .filter(isUpcoming)
+                .filter((b) => (upcomingTab === "cancelled" ? b.status === "cancelled" : b.status !== "cancelled"))
+                .filter((b) => bookingMatchesSearch(b, upcomingSearch)).length === 0 && (
+                <p className="text-stone-400 text-sm">
+                  No {upcomingTab} bookings{upcomingSearch.trim() ? " match that Booking ID" : ""}.
+                </p>
               )}
               {bookings
                 .filter(isUpcoming)
+                .filter((b) => (upcomingTab === "cancelled" ? b.status === "cancelled" : b.status !== "cancelled"))
+                .filter((b) => bookingMatchesSearch(b, upcomingSearch))
                 .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
                 .map((b) => {
                   const eventPassed = new Date(`${b.event_date}T${b.event_time}`).getTime() < Date.now();
@@ -2897,10 +2946,18 @@ export default function App() {
                   </div>
                   <span
                     className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${
-                      b.status === "accepted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                      b.status === "accepted"
+                        ? "bg-amber-100 text-amber-800"
+                        : b.status === "confirmed"
+                        ? "bg-sky-100 text-sky-800"
+                        : "bg-emerald-100 text-emerald-800"
                     }`}
                   >
-                    {b.status === "accepted" ? "Awaiting customer payment" : "Settled"}
+                    {b.status === "accepted"
+                      ? "Awaiting customer payment"
+                      : b.status === "confirmed"
+                      ? "Deposit paid — payout after check-in"
+                      : "Settled"}
                   </span>
                 </div>
               ))}

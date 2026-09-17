@@ -1611,6 +1611,15 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
         <div className="max-w-sm mx-auto w-full">
+          <a
+            href="https://mypaxo.in"
+            className="inline-flex items-center gap-1.5 text-sm text-stone-400 hover:text-stone-200 mb-6"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to PAXO
+          </a>
           <h1 className="font-bold leading-[1.05] tracking-tight mb-8">
             <span className="block text-4xl">
               <span className="text-white">Paxo</span> <span className="text-accent">Partner</span>

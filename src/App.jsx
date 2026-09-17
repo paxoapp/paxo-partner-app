@@ -2156,7 +2156,7 @@ export default function App() {
                       {b.venue_packages?.name} · {b.headcount} guests
                     </p>
                     <p className="text-sm text-stone-600">{b.event_date} at {b.event_time}</p>
-                    <p className="text-xs text-stone-400 font-mono mt-1.5">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
+                    <p className="text-xs text-stone-400 font-mono mt-1.5">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
                   </div>
                   <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusBadgeClass(b.status)}`}>
                     {b.status.replace("_", " ")}
@@ -2937,7 +2937,7 @@ export default function App() {
               {settlementBookings.map((b) => (
                 <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs text-stone-400 font-mono">Booking ID: {b.id.slice(0, 8).toUpperCase()}</p>
+                    <p className="text-xs text-stone-400 font-mono">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
                     <p className="font-medium">{b.venue_packages?.name}</p>
                     <p className="text-sm text-stone-500">{b.event_date}</p>
                     <p className="text-xs text-stone-400 mt-1">

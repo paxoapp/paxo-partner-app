@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 import SocialLinks from "./SocialLinks";
 import { sb, SUPABASE_URL } from "./supabase";
-import { VenueSubmissionForm, VenueStatusScreen } from "./onboarding";
+import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
@@ -717,7 +717,7 @@ export default function App() {
 
   const loadPartnerVenue = useCallback(async (token, userId) => {
     const [row] = await sb(
-      `/rest/v1/partner_users?id=eq.${userId}&select=*,venues(*)`,
+      `/rest/v1/partner_users?id=eq.${userId}&select=*,venues(*,agreement_acceptances(checkpoint))`,
       { token }
     );
     setPartnerVenue(row || null);
@@ -1941,6 +1941,18 @@ export default function App() {
         session={session}
         venue={venue}
         onChanged={refreshVenue}
+        onLogout={logOut}
+      />
+    );
+  }
+
+  const hasAcceptedFinalAgreement = venue?.agreement_acceptances?.some((a) => a.checkpoint === "final_agreement");
+  if (session && venue && venue.status === "approved" && !hasAcceptedFinalAgreement) {
+    return (
+      <PartnerAgreementScreen
+        session={session}
+        venue={venue}
+        onAccepted={refreshVenue}
         onLogout={logOut}
       />
     );

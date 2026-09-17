@@ -35,9 +35,9 @@ export const VENUE_STATUS_LABELS = {
   rejected: "Rejected",
 };
 
-const AGREEMENT_POLICY_VERSION = "v1";
+export const AGREEMENT_POLICY_VERSION = "v1";
 
-async function recordAgreementAcceptance(session, venueId, checkpoint) {
+export async function recordAgreementAcceptance(session, venueId, checkpoint) {
   await sb("/rest/v1/agreement_acceptances", {
     method: "POST",
     token: session.token,
@@ -103,7 +103,7 @@ export function VenueSubmissionForm({ session, initial, referredByVenueId, onSub
       }
     }
     if (!isResubmit && !agreed) {
-      setError("Please accept the Partner Agreement to continue.");
+      setError("Please confirm the information is accurate to continue.");
       return;
     }
     setSaving(true);
@@ -262,7 +262,7 @@ export function VenueSubmissionForm({ session, initial, referredByVenueId, onSub
             checked={agreed}
             onChange={(e) => setAgreed(e.target.checked)}
           />
-          <span>I agree to PAXO's Partner Agreement and Terms of Service.</span>
+          <span>I confirm that the information provided above is accurate and complete.</span>
         </label>
       )}
 
@@ -493,6 +493,75 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
             </p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+export function PartnerAgreementScreen({ session, venue, onAccepted, onLogout }) {
+  const [agreed, setAgreed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function accept() {
+    setError("");
+    setSaving(true);
+    try {
+      await recordAgreementAcceptance(session, venue.id, "final_agreement");
+      await onAccepted();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white px-6 py-10">
+      <div className="max-w-md mx-auto w-full">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-baseline gap-2">
+            <span className="font-black text-2xl">Paxo</span>
+            <span className="text-xs text-accent font-medium">Partner</span>
+          </div>
+          <button onClick={onLogout} className="text-xs text-stone-400 hover:text-stone-200">Log out</button>
+        </div>
+
+        <div className="mb-6">
+          <p className="text-xs font-medium text-stone-500 mb-1">One last step</p>
+          <h1 className="text-2xl font-bold">PAXO Partner Agreement</h1>
+        </div>
+
+        <div className="border border-stone-800 bg-stone-900/60 rounded-2xl p-5 mb-5 text-sm text-stone-300 space-y-3 max-h-96 overflow-y-auto">
+          <p>By continuing, you agree to the following terms as a PAXO venue partner:</p>
+          <ol className="list-decimal pl-4 space-y-2">
+            <li><strong>What PAXO is.</strong> PAXO is a booking platform connecting customers to venues. PAXO facilitates bookings, collects deposits, and processes settlements — your venue remains the actual service provider for every booking.</li>
+            <li><strong>Your packages.</strong> You are responsible for honoring the food & beverage packages exactly as you've configured them, including all listed quotas and categories, for every confirmed booking.</li>
+            <li><strong>Extra guests.</strong> If the number of guests attending exceeds the confirmed headcount, you may charge the customer additional amounts based on the increased guest count, as per your own venue policy — this is collected by you directly and is not calculated or collected by PAXO.</li>
+            <li><strong>Platform fee.</strong> PAXO charges a platform fee on the deposit portion of each booking, tiered by total booking value: 5% below ₹1 lakh, 7% between ₹1–2 lakh, 10% at ₹2 lakh and above.</li>
+            <li><strong>Deposits & refunds.</strong> Bookings fall into three types based on how far out the event is (Standard/Secure/Instant), each with its own deposit percentage and cancellation refund schedule. The remaining balance is paid directly to you by the customer at the venue.</li>
+            <li><strong>Billing.</strong> You are responsible for issuing a proper bill/invoice to the customer for every booking, including GST, VAT, and any other applicable taxes or service charges.</li>
+            <li><strong>Cancellations.</strong> You cannot cancel a confirmed booking yourself. If you need to cancel, contact PAXO Support — cancellations initiated this way refund the customer in full and no payout is made to you for that booking.</li>
+            <li><strong>Settlement & payout.</strong> OTP redemption at the event is required for payment settlement — your payout will not be processed without it. Once the customer's check-in OTP is redeemed, your share of the deposit is settled within 3 working days.</li>
+            <li><strong>Responding to requests.</strong> You must accept or decline booking requests within the response window shown for each request. Repeated non-response (not decline — decline is always fine) will place your venue on hold until PAXO reactivates it.</li>
+            <li><strong>Conduct & liability.</strong> PAXO is not responsible for any misconduct, misbehavior, disputes, or illegal activity occurring at your venue or during any event, by any party. You are solely responsible for the safety, legality, and conduct of your venue and event operations.</li>
+          </ol>
+        </div>
+
+        <label className="flex items-start gap-2 text-xs text-stone-300 mb-4">
+          <input type="checkbox" className="mt-0.5" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+          <span>I confirm I have read and agree to the above.</span>
+        </label>
+
+        {error && <p className="text-rose-400 text-sm mb-3">{error}</p>}
+
+        <button
+          onClick={accept}
+          disabled={!agreed || saving}
+          className="w-full bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Accept & Continue"}
+        </button>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 import SocialLinks from "./SocialLinks";
-import { sb, SUPABASE_URL } from "./supabase";
+import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
@@ -363,6 +363,11 @@ export default function App() {
   const [venueTermsSaved, setVenueTermsSaved] = useState(false);
   const [venueTermsError, setVenueTermsError] = useState("");
   const [venueTermsSaving, setVenueTermsSaving] = useState(false);
+  const [venuePhotos, setVenuePhotos] = useState([]);
+  const [venuePhotosLoading, setVenuePhotosLoading] = useState(false);
+  const [venuePhotoError, setVenuePhotoError] = useState("");
+  const [venuePhotoUploading, setVenuePhotoUploading] = useState(false);
+  const [venuePhotoDeletingId, setVenuePhotoDeletingId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -796,6 +801,21 @@ export default function App() {
     }
   }, []);
 
+  const loadVenuePhotos = useCallback(async (token, venueId) => {
+    setVenuePhotosLoading(true);
+    try {
+      const data = await sb(
+        `/rest/v1/venue_images?venue_id=eq.${venueId}&select=*&order=sort_order.asc`,
+        { token }
+      );
+      setVenuePhotos(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setVenuePhotosLoading(false);
+    }
+  }, []);
+
   const loadAddons = useCallback(async (token, venueId) => {
     setAddonsLoading(true);
     try {
@@ -875,6 +895,12 @@ export default function App() {
       loadMenu(session.token, partnerVenue.venue_id);
     }
   }, [screen, session, partnerVenue, loadPackages, loadAddons, loadCatalog, loadMenu]);
+
+  useEffect(() => {
+    if (screen === "profile" && session && partnerVenue?.venue_id) {
+      loadVenuePhotos(session.token, partnerVenue.venue_id);
+    }
+  }, [screen, session, partnerVenue, loadVenuePhotos]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
@@ -1125,6 +1151,93 @@ export default function App() {
       setVenueTermsError(e.message);
     } finally {
       setVenueTermsSaving(false);
+    }
+  }
+
+  const VENUE_PHOTOS_LIMIT = 8;
+  const VENUE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+  const VENUE_PHOTOS_PUBLIC_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/venue-photos/`;
+
+  async function handleVenuePhotoUpload(file) {
+    setVenuePhotoError("");
+    if (!file) return;
+    if (!file.type?.startsWith("image/")) {
+      setVenuePhotoError("Please choose an image file.");
+      return;
+    }
+    if (file.size > VENUE_PHOTO_MAX_BYTES) {
+      setVenuePhotoError("Image is larger than 5MB — please choose a smaller file.");
+      return;
+    }
+    if (venuePhotos.length >= VENUE_PHOTOS_LIMIT) {
+      setVenuePhotoError(`You can upload up to ${VENUE_PHOTOS_LIMIT} photos.`);
+      return;
+    }
+    setVenuePhotoUploading(true);
+    try {
+      const imageUrl = await uploadVenuePhoto(session.token, partnerVenue.venue_id, file);
+      const nextSortOrder = venuePhotos.length
+        ? Math.max(...venuePhotos.map((p) => p.sort_order)) + 1
+        : 0;
+      await sb("/rest/v1/venue_images", {
+        method: "POST",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { venue_id: partnerVenue.venue_id, image_url: imageUrl, sort_order: nextSortOrder },
+      });
+      await loadVenuePhotos(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setVenuePhotoError(e.message);
+    } finally {
+      setVenuePhotoUploading(false);
+    }
+  }
+
+  async function removeVenuePhoto(photo) {
+    setVenuePhotoError("");
+    setVenuePhotoDeletingId(photo.id);
+    try {
+      const objectPath = photo.image_url.startsWith(VENUE_PHOTOS_PUBLIC_PREFIX)
+        ? photo.image_url.slice(VENUE_PHOTOS_PUBLIC_PREFIX.length)
+        : null;
+      if (objectPath) {
+        await deleteVenuePhoto(session.token, objectPath);
+      }
+      await sb(`/rest/v1/venue_images?id=eq.${photo.id}`, {
+        method: "DELETE",
+        token: session.token,
+        prefer: "return=minimal",
+      });
+      await loadVenuePhotos(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setVenuePhotoError(e.message);
+    } finally {
+      setVenuePhotoDeletingId(null);
+    }
+  }
+
+  async function moveVenuePhoto(photo, direction) {
+    const idx = venuePhotos.findIndex((p) => p.id === photo.id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= venuePhotos.length) return;
+    const other = venuePhotos[swapIdx];
+    setVenuePhotoError("");
+    try {
+      await sb(`/rest/v1/venue_images?id=eq.${photo.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { sort_order: other.sort_order },
+      });
+      await sb(`/rest/v1/venue_images?id=eq.${other.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { sort_order: photo.sort_order },
+      });
+      await loadVenuePhotos(session.token, partnerVenue.venue_id);
+    } catch (e) {
+      setVenuePhotoError(e.message);
     }
   }
 
@@ -3815,6 +3928,91 @@ export default function App() {
                 {venueTermsSaving ? "Saving…" : "Save terms"}
               </button>
             </form>
+
+            <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">
+              <h2 className="text-sm font-medium mb-1">Venue Photos</h2>
+              <p className="text-stone-500 text-xs mb-4">
+                The first photo becomes your venue's cover image on the customer app. Up to{" "}
+                {VENUE_PHOTOS_LIMIT} photos.
+              </p>
+
+              {venuePhotoError && <p className="text-rose-600 text-sm mb-3">{venuePhotoError}</p>}
+
+              {venuePhotos.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  {venuePhotos.map((photo, i) => (
+                    <div
+                      key={photo.id}
+                      className="relative rounded-lg overflow-hidden border border-stone-200 aspect-square"
+                    >
+                      <img src={photo.image_url} alt="" className="w-full h-full object-cover" />
+                      {i === 0 && (
+                        <span className="absolute top-1 left-1 text-[10px] font-semibold bg-accent text-[#170D0B] px-1.5 py-0.5 rounded">
+                          Cover
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeVenuePhoto(photo)}
+                        disabled={venuePhotoDeletingId === photo.id}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs leading-none flex items-center justify-center hover:bg-black/80 disabled:opacity-50"
+                        aria-label="Remove photo"
+                      >
+                        ×
+                      </button>
+                      <div className="absolute bottom-1 right-1 flex gap-1">
+                        {i > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => moveVenuePhoto(photo, "up")}
+                            className="w-5 h-5 rounded bg-black/60 text-white text-xs leading-none flex items-center justify-center hover:bg-black/80"
+                            aria-label="Move earlier"
+                          >
+                            ‹
+                          </button>
+                        )}
+                        {i < venuePhotos.length - 1 && (
+                          <button
+                            type="button"
+                            onClick={() => moveVenuePhoto(photo, "down")}
+                            className="w-5 h-5 rounded bg-black/60 text-white text-xs leading-none flex items-center justify-center hover:bg-black/80"
+                            aria-label="Move later"
+                          >
+                            ›
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {venuePhotosLoading && <p className="text-stone-400 text-xs mb-3">Loading photos…</p>}
+
+              <label
+                className={`inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded ${
+                  venuePhotos.length >= VENUE_PHOTOS_LIMIT || venuePhotoUploading
+                    ? "bg-stone-100 text-stone-400 cursor-not-allowed"
+                    : "bg-accent text-[#170D0B] cursor-pointer"
+                }`}
+              >
+                {venuePhotoUploading ? "Uploading…" : "Add photo"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={venuePhotos.length >= VENUE_PHOTOS_LIMIT || venuePhotoUploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) handleVenuePhotoUpload(file);
+                  }}
+                />
+              </label>
+              {venuePhotos.length >= VENUE_PHOTOS_LIMIT && (
+                <p className="text-stone-400 text-xs mt-2">Up to {VENUE_PHOTOS_LIMIT} photos.</p>
+              )}
+            </div>
 
             <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">
               <h2 className="text-sm font-medium mb-1">Grow &amp; share</h2>

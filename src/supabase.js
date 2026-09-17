@@ -77,6 +77,43 @@ export async function signedDocumentUrl(token, objectPath, expiresIn = 3600) {
   return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
 }
 
+const PHOTOS_BUCKET = "venue-photos";
+
+// Upload a File to the public venue-photos bucket. The storage RLS policy
+// requires the first path segment to be the partner's venue_id, same
+// ownership pattern as uploadPartnerDocument. Returns the object's public
+// URL directly — no signing needed since the bucket is public.
+export async function uploadVenuePhoto(token, venueId, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const objectPath = `${venueId}/${Date.now()}.${ext}`;
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${PHOTOS_BUCKET}/${encodeURIComponent(objectPath).replace(/%2F/g, "/")}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(JSON.parse(t || "{}")?.message || "Upload failed");
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${PHOTOS_BUCKET}/${objectPath}`;
+}
+
+export async function deleteVenuePhoto(token, objectPath) {
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${PHOTOS_BUCKET}/${objectPath}`,
+    { method: "DELETE", headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error("Couldn't delete photo");
+}
+
 export async function signIn(email, password) {
   const data = await sb("/auth/v1/token?grant_type=password", {
     method: "POST",

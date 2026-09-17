@@ -1115,6 +1115,9 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
       <button onClick={onBack} className="text-sm text-stone-500 mb-4">← Back to requests</button>
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
+          <p className="text-xs font-semibold text-amber-700 mb-1">
+            {b.booking_ref || b.id.slice(0, 8).toUpperCase()}
+          </p>
           <h2 className="text-2xl font-semibold">{b.venues?.name || "—"}</h2>
           <p className="text-stone-500 text-sm">
             {b.venue_packages?.name || "—"} · {fmtDate(b.event_date)}
@@ -1193,7 +1196,6 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
         <Row label="Total amount" value={inr(b.total_amount)} />
         <Row label="Deposit tier" value={b.deposit_tier} />
         <Row label="Deposit amount" value={inr(b.deposit_amount)} />
-        <Row label="Booking ref" value={b.booking_ref} />
       </div>
 
       {b.status === "confirmed" && (

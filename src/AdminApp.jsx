@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import { sb, signIn, fetchAdminRow, signedDocumentUrl } from "./supabase";
+import { sb, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY } from "./supabase";
 import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
+
+async function callFn(slug, token, body) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.text().then((t) => (t ? JSON.parse(t) : {}));
+  if (!res.ok) throw new Error(data.error || data.details || "Something went wrong");
+  return data;
+}
 
 const TABS = [
   ["submitted", "Submitted"],
@@ -18,6 +29,13 @@ const DEACTIVATION_REASONS = [
   "Repeated policy violations",
   "Fraudulent or misleading listing",
   "Other",
+];
+
+const BOOKING_CANCEL_REASONS = [
+  "Venue unable to host as booked",
+  "Double-booked by venue",
+  "Venue closed/unavailable",
+  "Health & safety issue",
 ];
 
 const HOLD_REASONS = [
@@ -1062,7 +1080,29 @@ const REQUEST_TABS = [
 // went to, whether/when they responded, and everything that happened after,
 // so support staff can answer "what's going on with this booking" without
 // having to ask the partner.
-function RequestDetail({ booking: b, onBack }) {
+function RequestDetail({ session, booking: b, onBack, onRefresh }) {
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+
+  async function handleAdminCancel(reasonText) {
+    setCancelBusy(true);
+    setCancelError("");
+    try {
+      await callFn("process-booking-refund", session.token, {
+        booking_id: b.id,
+        initiated_by: "admin",
+        cancellation_reason: reasonText,
+      });
+      await onRefresh();
+      onBack();
+    } catch (e) {
+      setCancelError(e.message || "Couldn't cancel this booking.");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   const Row = ({ label, value }) => (
     <div className="grid grid-cols-3 gap-2 py-1.5 border-b border-stone-100 text-sm">
       <span className="text-stone-500">{label}</span>
@@ -1155,6 +1195,39 @@ function RequestDetail({ booking: b, onBack }) {
         <Row label="Deposit amount" value={inr(b.deposit_amount)} />
         <Row label="Booking ref" value={b.booking_ref} />
       </div>
+
+      {b.status === "confirmed" && (
+        <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
+          <h3 className="font-medium text-sm mb-2">Venue-caused cancellation</h3>
+          <p className="text-xs text-stone-500 mb-3">
+            Use this only when PAXO Support needs to cancel on the venue's
+            behalf (e.g. the venue can't honor the booking). This always
+            refunds the customer's full deposit ({inr(b.deposit_amount)})
+            and pays the partner nothing for this booking — this is
+            different from a customer-initiated cancellation, which
+            follows the normal refund slabs.
+          </p>
+          {cancelError && <p className="text-rose-600 text-sm mb-2">{cancelError}</p>}
+          {!cancelling ? (
+            <button
+              onClick={() => setCancelling(true)}
+              className="text-sm font-medium text-rose-600 border border-rose-300 rounded px-4 py-2 hover:bg-rose-50"
+            >
+              Cancel this booking (100% refund)
+            </button>
+          ) : (
+            <StateReasonForm
+              title="Cancel this booking — customer gets a 100% refund, partner gets no payout"
+              reasons={BOOKING_CANCEL_REASONS}
+              confirmLabel="Confirm cancellation"
+              tone="rose"
+              busy={cancelBusy}
+              onConfirm={handleAdminCancel}
+              onCancel={() => { setCancelling(false); setCancelError(""); }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2141,7 +2214,7 @@ function Requests({ session }) {
   const selected = rows.find((r) => r.id === selectedId) || null;
 
   if (selected) {
-    return <RequestDetail booking={selected} onBack={() => setSelectedId(null)} />;
+    return <RequestDetail session={session} booking={selected} onBack={() => setSelectedId(null)} onRefresh={load} />;
   }
 
   return (

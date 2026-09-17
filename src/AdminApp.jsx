@@ -2185,7 +2185,7 @@ function Requests({ session }) {
     try {
       const data = await sb(
         "/rest/v1/bookings?select=id,booking_ref,event_date,headcount,status,requested_at,responded_at," +
-          "response_deadline,is_last_minute,booking_type,partner_response_deadline,payment_deadline," +
+          "is_last_minute,booking_type,partner_response_deadline,payment_deadline," +
           "total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
           "contact_email,rejection_reason,cancellation_reason,cancelled_at,menu_finalized_at," +
           "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +

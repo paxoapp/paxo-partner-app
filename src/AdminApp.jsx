@@ -835,7 +835,7 @@ function Settlements({ session }) {
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
-          "&order=paid_at.desc.nullslast",
+          "&order=paid_at.desc.nullslast&limit=5000",
         { token: session.token }
       );
       setRows(data);
@@ -1301,10 +1301,10 @@ function PartnersAdmin({ session }) {
     try {
       const [v, b] = await Promise.all([
         sb(
-          "/rest/v1/venues?status=eq.approved&select=*,partner_users(full_name,phone)&order=name.asc",
+          "/rest/v1/venues?status=eq.approved&select=*,partner_users(full_name,phone)&order=name.asc&limit=5000",
           { token: session.token }
         ),
-        sb("/rest/v1/bookings?select=id,venue_id,status", { token: session.token }),
+        sb("/rest/v1/bookings?select=id,venue_id,status&limit=5000", { token: session.token }),
       ]);
       setVenues(v);
       setBookings(b);
@@ -1676,10 +1676,10 @@ function CustomersAdmin({ session }) {
     try {
       const [p, b] = await Promise.all([
         sb(
-          "/rest/v1/profiles?select=id,full_name,phone,email,no_show_count,rating_avg,created_at,account_state,state_reason&order=created_at.desc",
+          "/rest/v1/profiles?select=id,full_name,phone,email,no_show_count,rating_avg,created_at,account_state,state_reason&order=created_at.desc&limit=5000",
           { token: session.token }
         ),
-        sb("/rest/v1/bookings?select=id,customer_id,status", { token: session.token }),
+        sb("/rest/v1/bookings?select=id,customer_id,status&limit=5000", { token: session.token }),
       ]);
       setProfiles(p);
       setBookings(b);
@@ -2244,7 +2244,7 @@ function Requests({ session }) {
           "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
           "special_request,venues(name),venue_packages(name)," +
           "booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)" +
-          "&order=requested_at.desc",
+          "&order=requested_at.desc&limit=5000",
         { token: session.token }
       );
       setRows(data);
@@ -2381,11 +2381,11 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
     try {
       const [bk, pm, prof] = await Promise.all([
         sb(
-          "/rest/v1/bookings?select=id,total_amount,status,event_date,contact_name,created_at,venues(name)&order=created_at.desc",
+          "/rest/v1/bookings?select=id,total_amount,status,event_date,contact_name,created_at,venues(name)&order=created_at.desc&limit=5000",
           { token: session.token }
         ),
         sb(
-          "/rest/v1/payments?status=eq.paid&select=amount,platform_fee_amount,partner_payout_amount,settlement_status",
+          "/rest/v1/payments?status=eq.paid&select=amount,platform_fee_amount,partner_payout_amount,settlement_status&limit=5000",
           { token: session.token }
         ),
         sb("/rest/v1/profiles?select=id", { token: session.token }),
@@ -2563,7 +2563,7 @@ export default function AdminApp() {
       // updated_at is trigger-maintained on every venue update, so rejected
       // venues that a partner edits/resubmits float back to the top.
       const rows = await sb(
-        "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=updated_at.desc.nullslast,created_at.desc",
+        "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=updated_at.desc.nullslast,created_at.desc&limit=5000",
         { token }
       );
       setVenues(rows);

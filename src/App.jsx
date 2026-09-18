@@ -4146,7 +4146,9 @@ export default function App() {
             <div className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4">
               <div>
                 <p className="text-sm font-medium">Email us</p>
-                <p className="text-sm text-stone-500">hello.mypaxo@gmail.com</p>
+                <a href="mailto:paxoapp.in@gmail.com" className="text-sm text-stone-500 underline">
+                  paxoapp.in@gmail.com
+                </a>
               </div>
               <div className="border-t border-stone-100 pt-4">
                 <p className="text-sm font-medium mb-1">Common questions</p>

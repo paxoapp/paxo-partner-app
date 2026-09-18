@@ -817,6 +817,7 @@ function Settlements({ session }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [viewingReceipt, setViewingReceipt] = useState(null); // payment row awaiting the receipt view
+  const [copiedId, setCopiedId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -826,7 +827,8 @@ function Settlements({ session }) {
         "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
           "partner_payout_amount,paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
-          "contact_email,venues(id,name),venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
+          "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
+          "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
           "&order=paid_at.desc.nullslast",
         { token: session.token }
@@ -865,6 +867,26 @@ function Settlements({ session }) {
       setError(e.message);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function copyBankDetails(p) {
+    const bd = p.bookings?.venues?.partner_bank_details;
+    if (!bd) return;
+    const lines = [
+      `Account holder: ${bd.account_holder_name || "—"}`,
+      `Account number: ${bd.account_number || "—"}`,
+      `IFSC: ${bd.ifsc_code || "—"}`,
+      `Bank: ${bd.bank_name || "—"}${bd.branch_name ? " (" + bd.branch_name + ")" : ""}`,
+      bd.upi_id ? `UPI: ${bd.upi_id}` : null,
+      `Amount to transfer: ${inr(p.partner_payout_amount)}`,
+    ].filter(Boolean);
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopiedId(p.id);
+      setTimeout(() => setCopiedId((id) => (id === p.id ? null : id)), 2000);
+    } catch (e) {
+      setError("Couldn't copy to clipboard.");
     }
   }
 
@@ -962,6 +984,21 @@ function Settlements({ session }) {
                       >
                         Receipt
                       </button>
+                      {p.settlement_status === "pending" && (
+                        p.bookings?.venues?.partner_bank_details ? (
+                          <button
+                            onClick={() => copyBankDetails(p)}
+                            className="text-xs border border-slate-300 text-slate-600 rounded px-3 py-1.5"
+                            title="Copy account holder, account number, IFSC, bank & UPI to paste into your bank's transfer screen"
+                          >
+                            {copiedId === p.id ? "Copied!" : "Copy bank details"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic px-1" title="Partner hasn't submitted bank details yet">
+                            No bank details
+                          </span>
+                        )
+                      )}
                       {p.settlement_status === "pending" && (
                         <button
                           onClick={() => setConfirming(p)}
@@ -2180,6 +2217,7 @@ function Requests({ session }) {
   const [tab, setTab] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2212,7 +2250,15 @@ function Requests({ session }) {
     a[r.status] = (a[r.status] || 0) + 1;
     return a;
   }, {});
-  const visible = rows.filter((r) => tab === "all" || r.status === tab);
+  const q = search.trim().toLowerCase();
+  const visible = rows.filter(
+    (r) =>
+      (tab === "all" || r.status === tab) &&
+      (!q ||
+        [r.booking_ref, r.contact_name, r.contact_mobile, r.contact_email].some((f) =>
+          String(f || "").toLowerCase().includes(q)
+        ))
+  );
   const selected = rows.find((r) => r.id === selectedId) || null;
 
   if (selected) {
@@ -2242,6 +2288,14 @@ function Requests({ session }) {
           </button>
         ))}
       </div>
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by Booking ID, name, phone, or email…"
+        className="border border-slate-300 rounded px-3 py-1.5 text-sm w-full max-w-sm mb-4"
+      />
 
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>

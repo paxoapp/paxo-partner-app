@@ -764,7 +764,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),payments(partner_payout_amount,settlement_status)`,
           { token }
         ),
       ]);
@@ -2109,7 +2109,11 @@ export default function App() {
   const visibleCategories = categories
     .filter((cat) => menuSectionKinds.includes(cat.kind))
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const settlementBookings = bookings.filter((b) => ["accepted", "confirmed", "completed"].includes(b.status));
+  const settlementBookings = bookings.filter(
+    (b) =>
+      ["accepted", "confirmed", "completed"].includes(b.status) ||
+      (b.status === "cancelled" && Number(b.payments?.[0]?.partner_payout_amount || 0) > 0)
+  );
   const pendingSettlementTotal = bookings
     .filter((b) => b.status === "accepted")
     .reduce((sum, b) => sum + Number(b.deposit_amount || 0), 0);
@@ -3047,35 +3051,50 @@ export default function App() {
 
             {bookingsLoading && <p className="text-stone-400 text-sm">Loading…</p>}
             <div className="flex flex-col gap-3">
-              {settlementBookings.map((b) => (
-                <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs text-stone-400 font-mono">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
-                    <p className="font-medium">{b.venue_packages?.name}</p>
-                    <p className="text-sm text-stone-500">{b.event_date}</p>
-                    <p className="text-xs text-stone-400 mt-1">
-                      Deposit {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
-                    </p>
+              {settlementBookings.map((b) => {
+                const payment = b.payments?.[0];
+                const payoutAmount = payment?.partner_payout_amount;
+                const isSettled = payment?.settlement_status === "settled";
+                const checkedIn = Boolean(b.event_started_at);
+                let badgeLabel, badgeClass;
+                if (b.status === "accepted") {
+                  badgeLabel = "Awaiting customer payment";
+                  badgeClass = "bg-amber-100 text-amber-800";
+                } else if (isSettled) {
+                  badgeLabel = "Settled";
+                  badgeClass = "bg-emerald-100 text-emerald-800";
+                } else if (b.status === "cancelled") {
+                  badgeLabel = "Payout pending (booking cancelled)";
+                  badgeClass = "bg-rose-100 text-rose-800";
+                } else if (checkedIn) {
+                  badgeLabel = "Checked in — payout pending";
+                  badgeClass = "bg-sky-100 text-sky-800";
+                } else {
+                  badgeLabel = "Deposit paid — payout after check-in";
+                  badgeClass = "bg-sky-100 text-sky-800";
+                }
+                return (
+                  <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs text-stone-400 font-mono">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
+                      <p className="font-medium">{b.venue_packages?.name}</p>
+                      <p className="text-sm text-stone-500">{b.event_date}</p>
+                      <p className="text-xs text-stone-400 mt-1">
+                        {payoutAmount != null ? (
+                          <>Your payout {inr(payoutAmount)}</>
+                        ) : (
+                          <>
+                            Deposit {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"}) — payout shown once paid
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${badgeClass}`}>{badgeLabel}</span>
                   </div>
-                  <span
-                    className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${
-                      b.status === "accepted"
-                        ? "bg-amber-100 text-amber-800"
-                        : b.status === "confirmed"
-                        ? "bg-sky-100 text-sky-800"
-                        : "bg-emerald-100 text-emerald-800"
-                    }`}
-                  >
-                    {b.status === "accepted"
-                      ? "Awaiting customer payment"
-                      : b.status === "confirmed"
-                      ? "Deposit paid — payout after check-in"
-                      : "Settled"}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
               {!bookingsLoading && settlementBookings.length === 0 && (
-                <p className="text-stone-400 text-sm">No accepted, confirmed, or completed bookings yet.</p>
+                <p className="text-stone-400 text-sm">No accepted, confirmed, cancelled-with-payout, or completed bookings yet.</p>
               )}
             </div>
           </div>

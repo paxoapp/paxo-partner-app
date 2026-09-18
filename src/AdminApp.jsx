@@ -395,13 +395,18 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
-  const toggleGstVerified = () =>
+  const toggleGstVerified = () => {
+    const confirmMsg = venue.gst_verified
+      ? "Remove GST verification for this venue? This unmarks the venue's GST badge."
+      : "Mark this venue's GST documents as verified? This shows a trust badge to customers.";
+    if (!window.confirm(confirmMsg)) return;
     patch(
       venue.gst_verified
         ? { gst_verified: false, gst_verified_at: null, gst_verified_by: null }
         : { gst_verified: true, gst_verified_at: nowIso(), gst_verified_by: session.userId },
       venue.gst_verified ? "gst_unverify" : "gst_verify"
     );
+  };
   // PostgREST returns this embed as a single object (the FK resolves to-one),
   // not an array — tolerate both shapes.
   const partner = Array.isArray(venue.partner_users)

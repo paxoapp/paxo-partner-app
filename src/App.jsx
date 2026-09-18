@@ -2329,6 +2329,9 @@ export default function App() {
                   <span>
                     Deposit due {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
                   </span>
+                  {b.deposit_tier !== "full" && (
+                    <span>Remaining {inr(Number(b.total_amount || 0) - Number(b.deposit_amount || 0))} (collected by you at the venue)</span>
+                  )}
                 </div>
 
                 {Array.isArray(b.booking_addon_requests) && b.booking_addon_requests.length > 0 && (

@@ -831,7 +831,7 @@ function Settlements({ session }) {
       const data = await sb(
         "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
           "partner_payout_amount,paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
-          "bookings(id,booking_ref,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
+          "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
@@ -961,6 +961,14 @@ function Settlements({ session }) {
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{p.bookings?.venues?.name || "—"}</span>
                     <span className="block text-xs text-slate-400 capitalize">{p.payment_type}</span>
+                    {p.bookings?.status === "cancelled" && (
+                      <span
+                        className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700"
+                        title={p.bookings?.cancellation_reason || "Booking was cancelled"}
+                      >
+                        Forfeiture — booking cancelled
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.bookings?.event_date)}</td>
                   <td className="px-4 py-2.5 text-right">{inr(p.amount)}</td>

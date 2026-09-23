@@ -363,6 +363,10 @@ export default function App() {
   const [venueTermsSaved, setVenueTermsSaved] = useState(false);
   const [venueTermsError, setVenueTermsError] = useState("");
   const [venueTermsSaving, setVenueTermsSaving] = useState(false);
+  const [venueGuestCapacity, setVenueGuestCapacity] = useState("");
+  const [venueGuestCapacitySaved, setVenueGuestCapacitySaved] = useState(false);
+  const [venueGuestCapacityError, setVenueGuestCapacityError] = useState("");
+  const [venueGuestCapacitySaving, setVenueGuestCapacitySaving] = useState(false);
   const [venuePhotos, setVenuePhotos] = useState([]);
   const [venuePhotosLoading, setVenuePhotosLoading] = useState(false);
   const [venuePhotoError, setVenuePhotoError] = useState("");
@@ -852,6 +856,7 @@ export default function App() {
     if (partnerVenue) {
       setProfileForm({ full_name: partnerVenue.full_name || "", phone: partnerVenue.phone || "" });
       setVenueTerms(partnerVenue.venues?.terms_and_conditions || "");
+      setVenueGuestCapacity(partnerVenue.venues?.guest_capacity ?? "");
     }
   }, [partnerVenue]);
 
@@ -1151,6 +1156,27 @@ export default function App() {
       setVenueTermsError(e.message);
     } finally {
       setVenueTermsSaving(false);
+    }
+  }
+
+  async function saveVenueGuestCapacity(e) {
+    e.preventDefault();
+    setVenueGuestCapacityError("");
+    setVenueGuestCapacitySaved(false);
+    setVenueGuestCapacitySaving(true);
+    try {
+      await sb(`/rest/v1/venues?id=eq.${partnerVenue.venue_id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { guest_capacity: venueGuestCapacity === "" ? null : parseInt(venueGuestCapacity, 10) },
+      });
+      await refreshVenue();
+      setVenueGuestCapacitySaved(true);
+    } catch (e) {
+      setVenueGuestCapacityError(e.message);
+    } finally {
+      setVenueGuestCapacitySaving(false);
     }
   }
 
@@ -3948,6 +3974,36 @@ export default function App() {
                 className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
               >
                 {venueTermsSaving ? "Saving…" : "Save terms"}
+              </button>
+            </form>
+
+            <form
+              onSubmit={saveVenueGuestCapacity}
+              className="flex flex-col gap-3 bg-white border border-stone-200 rounded-lg p-5 mt-6"
+            >
+              <div>
+                <h2 className="text-sm font-medium mb-1">Guest capacity</h2>
+                <p className="text-stone-500 text-xs">
+                  The maximum guests {partnerVenue?.venues?.name || "your venue"} can host — shown to
+                  customers as "Up to N guests".
+                </p>
+              </div>
+              <input
+                type="number"
+                min="0"
+                className="border border-stone-300 rounded px-3 py-2 text-sm w-full max-w-[160px]"
+                value={venueGuestCapacity}
+                onChange={(e) => setVenueGuestCapacity(e.target.value)}
+              />
+              {venueGuestCapacityError && <p className="text-rose-600 text-sm">{venueGuestCapacityError}</p>}
+              {venueGuestCapacitySaved && (
+                <p className="text-emerald-600 text-sm">Guest capacity saved.</p>
+              )}
+              <button
+                disabled={venueGuestCapacitySaving}
+                className="bg-accent text-[#170D0B] font-medium rounded px-4 py-2 text-sm disabled:opacity-50 self-start"
+              >
+                {venueGuestCapacitySaving ? "Saving…" : "Save guest capacity"}
               </button>
             </form>
 

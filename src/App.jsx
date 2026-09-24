@@ -3849,7 +3849,8 @@ export default function App() {
 
               <div className="mb-6">
                 <p className="text-stone-400 text-xs mb-2">
-                  Click to offer an item to customers, click it again to stop offering it:
+                  Click to offer an item to customers. Click an offered item to hide it again — it stays
+                  saved so you can turn it back on later.
                 </p>
                 {catalogLoading ? (
                   <p className="text-stone-400 text-xs">Loading…</p>
@@ -3859,22 +3860,34 @@ export default function App() {
                   <div className="flex flex-wrap gap-2">
                     {catalog.map((c) => {
                       const existing = addons.find((a) => a.catalog_id === c.id);
-                      const isOffered = !!existing;
+                      // Three real states, not just "row exists or not": an item can be
+                      // added and currently visible to customers ("on"), added but the
+                      // partner has hidden it ("hidden" — still saved, just off), or never
+                      // added at all ("off"). The chip has to reflect is_active, not just
+                      // row existence, or it lies about what customers actually see.
+                      const status = !existing ? "off" : existing.is_active ? "on" : "hidden";
                       return (
                         <button
                           key={c.id}
                           type="button"
                           disabled={addonSaving}
                           className={`text-xs px-2.5 py-1 rounded-full border disabled:opacity-50 ${
-                            isOffered
+                            status === "on"
                               ? "bg-accent/20 border-accent text-accent-ink font-medium"
+                              : status === "hidden"
+                              ? "border-dashed border-stone-300 text-stone-400"
                               : "border-stone-300 text-stone-600 hover:border-accent hover:text-accent-ink"
                           }`}
-                          onClick={() => (isOffered ? deleteAddon(existing.id) : addCatalogItem(c))}
-                          title={c.description || ""}
+                          onClick={() => (status === "off" ? addCatalogItem(c) : toggleAddonActive(existing))}
+                          title={
+                            status === "hidden"
+                              ? "Saved but hidden from customers — click to show it again"
+                              : c.description || ""
+                          }
                         >
-                          {isOffered ? "✓ " : "+ "}
+                          {status === "on" ? "✓ " : status === "hidden" ? "○ " : "+ "}
                           {c.name}
+                          {status === "hidden" ? " (hidden)" : ""}
                         </button>
                       );
                     })}
@@ -3932,14 +3945,16 @@ export default function App() {
                 </form>
               )}
 
-              {/* Items the toggle picker above can't represent: legacy items added
-                  before the catalog existed (no catalog_id), and items PAXO has since
-                  removed from the active catalog — still manageable here so nothing
-                  a partner already has becomes invisible/unmanageable. */}
-              {addons.filter((a) => !a.catalog_id || !catalog.some((c) => c.id === a.catalog_id)).length > 0 && (
+              {/* Full detail view of every add-on this venue has, whether it came from
+                  the catalog picker above or was added before the catalog existed.
+                  The chips above are a fast on/off toggle; this list is where a partner
+                  can see and manage everything at once, including editing the
+                  description of a catalog-linked item. */}
+              {addons.length > 0 && (
                 <div className="flex flex-col gap-3">
                   {addons
-                    .filter((a) => !a.catalog_id || !catalog.some((c) => c.id === a.catalog_id))
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
                     .map((a) => (
                       <div
                         key={a.id}

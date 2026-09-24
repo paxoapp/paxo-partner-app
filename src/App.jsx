@@ -336,6 +336,7 @@ export default function App() {
   const [checkinBusyId, setCheckinBusyId] = useState(null);
   const [menuExpanded, setMenuExpanded] = useState({}); // { [bookingId]: true } — Finalized menu open; collapsed by default
   const [detailBookingId, setDetailBookingId] = useState(null); // booking id shown in the detail view
+  const [paymentDetailId, setPaymentDetailId] = useState(null); // booking id shown in the Payments transaction detail view
 
   const [claimVenuePending, setClaimVenuePending] = useState(""); // used on the post-Google "claim venue" screen
 
@@ -768,7 +769,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),payments(partner_payout_amount,settlement_status)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),payments(payment_type,status,amount,paid_at,platform_fee_amount,partner_payout_amount,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -3103,7 +3104,12 @@ export default function App() {
                   badgeClass = "bg-sky-100 text-sky-800";
                 }
                 return (
-                  <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4">
+                  <button
+                    type="button"
+                    key={b.id}
+                    onClick={() => setPaymentDetailId(b.id)}
+                    className="text-left border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4 hover:border-stone-300 hover:shadow-sm transition-shadow w-full"
+                  >
                     <div>
                       <p className="text-xs text-stone-400 font-mono">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
                       <p className="font-medium">{b.venue_packages?.name}</p>
@@ -3118,8 +3124,11 @@ export default function App() {
                         )}
                       </p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${badgeClass}`}>{badgeLabel}</span>
-                  </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${badgeClass}`}>{badgeLabel}</span>
+                      <span className="text-stone-300 text-lg leading-none">›</span>
+                    </div>
+                  </button>
                 );
               })}
               {!bookingsLoading && settlementBookings.length === 0 && (
@@ -3128,6 +3137,160 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {paymentDetailId && (() => {
+          const b = bookings.find((x) => x.id === paymentDetailId);
+          if (!b) return null;
+          const payment = b.payments?.[0];
+          const addonTotal = (b.booking_addon_requests || [])
+            .filter((a) => a.status === "confirmed" && a.price != null)
+            .reduce((sum, a) => sum + Number(a.price || 0), 0);
+          const fmt = (ts) =>
+            ts
+              ? new Date(ts).toLocaleString("en-IN", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })
+              : "—";
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Transaction details"
+              onClick={() => setPaymentDetailId(null)}
+            >
+              <div
+                className="bg-white rounded-xl max-w-md w-full p-5 shadow-xl max-h-[85vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h2 className="font-serif text-xl">Transaction details</h2>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentDetailId(null)}
+                    className="text-stone-400 hover:text-stone-600 text-sm"
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="text-xs text-stone-400 font-mono mb-4">
+                  {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
+                </p>
+
+                <dl className="text-sm flex flex-col gap-2 mb-4">
+                  <div className="flex justify-between">
+                    <dt className="text-stone-500">Package</dt>
+                    <dd className="font-medium">{b.venue_packages?.name || "—"}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-stone-500">Event date</dt>
+                    <dd className="font-medium">{b.event_date} {b.event_time}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-stone-500">Headcount</dt>
+                    <dd className="font-medium">{b.headcount ?? "—"}</dd>
+                  </div>
+                </dl>
+
+                <div className="border-t border-stone-200 pt-3 mb-3">
+                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Payment</p>
+                  <dl className="text-sm flex flex-col gap-1.5">
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Booking total</dt>
+                      <dd className="font-medium">{inr(b.total_amount)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">
+                        {b.deposit_tier === "full" ? "Paid (full)" : `Deposit (${b.deposit_tier === "50pct" ? "50%" : "20%"})`}
+                      </dt>
+                      <dd className="font-medium">{inr(payment?.amount ?? b.deposit_amount)}</dd>
+                    </div>
+                    {addonTotal > 0 && (
+                      <div className="flex justify-between">
+                        <dt className="text-stone-500">Confirmed add-ons</dt>
+                        <dd className="font-medium">{inr(addonTotal)}</dd>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Payment status</dt>
+                      <dd className="font-medium capitalize">{payment?.status || "pending"}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Paid at</dt>
+                      <dd className="font-medium">{fmt(payment?.paid_at)}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div className="border-t border-stone-200 pt-3 mb-3">
+                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Your payout</p>
+                  <dl className="text-sm flex flex-col gap-1.5">
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Platform fee</dt>
+                      <dd className="font-medium">
+                        {payment?.platform_fee_amount != null ? `− ${inr(payment.platform_fee_amount)}` : "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Payout amount</dt>
+                      <dd className="font-medium">
+                        {payment?.partner_payout_amount != null ? inr(payment.partner_payout_amount) : "Shown once paid"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-stone-500">Settlement</dt>
+                      <dd className="font-medium">
+                        {payment?.settlement_status === "settled" ? `Settled ${fmt(payment.settled_at)}` : "Pending"}
+                      </dd>
+                    </div>
+                    {payment?.settlement_notes && (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-stone-500 shrink-0">Notes</dt>
+                        <dd className="font-medium text-right">{payment.settlement_notes}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+
+                {(payment?.refund_status && payment.refund_status !== "none") && (
+                  <div className="border-t border-stone-200 pt-3 mb-3">
+                    <p className="text-sm font-semibold text-stone-500 mb-1.5">Refund</p>
+                    <dl className="text-sm flex flex-col gap-1.5">
+                      <div className="flex justify-between">
+                        <dt className="text-stone-500">Refund status</dt>
+                        <dd className="font-medium capitalize">{payment.refund_status}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-stone-500">Refund amount</dt>
+                        <dd className="font-medium">
+                          {inr(payment.refund_amount)}{payment.refund_percent != null ? ` (${payment.refund_percent}%)` : ""}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-stone-500">Refunded at</dt>
+                        <dd className="font-medium">{fmt(payment.refunded_at)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                )}
+
+                {b.status === "cancelled" && (
+                  <div className="border-t border-stone-200 pt-3">
+                    <p className="text-sm font-semibold text-stone-500 mb-1.5">Cancellation</p>
+                    <p className="text-sm text-stone-700">
+                      Cancelled by {b.cancelled_by || "—"} on {fmt(b.cancelled_at)}
+                      {b.cancellation_reason ? ` — ${b.cancellation_reason}` : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {screen === "packages" && (
           <div>

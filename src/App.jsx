@@ -3849,8 +3849,8 @@ export default function App() {
 
               <div className="mb-6">
                 <p className="text-stone-400 text-xs mb-2">
-                  Click to offer an item to customers. Click an offered item to hide it again — it stays
-                  saved so you can turn it back on later.
+                  Click to offer an item to customers — it'll appear in the list below where you can edit
+                  or remove it. Removing it there brings it back here, unchecked.
                 </p>
                 {catalogLoading ? (
                   <p className="text-stone-400 text-xs">Loading…</p>
@@ -3860,34 +3860,28 @@ export default function App() {
                   <div className="flex flex-wrap gap-2">
                     {catalog.map((c) => {
                       const existing = addons.find((a) => a.catalog_id === c.id);
-                      // Three real states, not just "row exists or not": an item can be
-                      // added and currently visible to customers ("on"), added but the
-                      // partner has hidden it ("hidden" — still saved, just off), or never
-                      // added at all ("off"). The chip has to reflect is_active, not just
-                      // row existence, or it lies about what customers actually see.
-                      const status = !existing ? "off" : existing.is_active ? "on" : "hidden";
+                      // A chip is "on" only when a row exists AND is_active is true — that's
+                      // the one thing that actually controls what customers see. Everything
+                      // else (no row yet, or a row the partner previously removed) renders as
+                      // the same plain unchecked chip; clicking it either creates the row
+                      // (first time) or flips the existing one back to active (reactivating
+                      // it in place, never inserting a duplicate).
+                      const isOn = !!existing && existing.is_active;
                       return (
                         <button
                           key={c.id}
                           type="button"
                           disabled={addonSaving}
                           className={`text-xs px-2.5 py-1 rounded-full border disabled:opacity-50 ${
-                            status === "on"
+                            isOn
                               ? "bg-accent/20 border-accent text-accent-ink font-medium"
-                              : status === "hidden"
-                              ? "border-dashed border-stone-300 text-stone-400"
                               : "border-stone-300 text-stone-600 hover:border-accent hover:text-accent-ink"
                           }`}
-                          onClick={() => (status === "off" ? addCatalogItem(c) : toggleAddonActive(existing))}
-                          title={
-                            status === "hidden"
-                              ? "Saved but hidden from customers — click to show it again"
-                              : c.description || ""
-                          }
+                          onClick={() => (existing ? toggleAddonActive(existing) : addCatalogItem(c))}
+                          title={c.description || ""}
                         >
-                          {status === "on" ? "✓ " : status === "hidden" ? "○ " : "+ "}
+                          {isOn ? "✓ " : "+ "}
                           {c.name}
-                          {status === "hidden" ? " (hidden)" : ""}
                         </button>
                       );
                     })}
@@ -3945,14 +3939,15 @@ export default function App() {
                 </form>
               )}
 
-              {/* Full detail view of every add-on this venue has, whether it came from
-                  the catalog picker above or was added before the catalog existed.
-                  The chips above are a fast on/off toggle; this list is where a partner
-                  can see and manage everything at once, including editing the
-                  description of a catalog-linked item. */}
-              {addons.length > 0 && (
+              {/* Only what's currently offered to customers (is_active) shows here — this
+                  is the "what's live right now" list, not a full inventory. Clicking Remove
+                  turns it off; it drops out of this list and its chip above reverts to
+                  unchecked, ready to be turned back on from there. Anything not currently
+                  offered lives only as an unchecked chip above, never a stray card here. */}
+              {addons.filter((a) => a.is_active).length > 0 && (
                 <div className="flex flex-col gap-3">
                   {addons
+                    .filter((a) => a.is_active)
                     .slice()
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map((a) => (
@@ -3961,25 +3956,12 @@ export default function App() {
                         className="bg-white border border-stone-200 rounded-lg p-4 flex items-start justify-between gap-3"
                       >
                         <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium">{a.name}</p>
-                            <span
-                              className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                                a.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-200 text-stone-500"
-                              }`}
-                            >
-                              {a.is_active ? "Visible" : "Hidden"}
-                            </span>
-                          </div>
+                          <p className="font-medium">{a.name}</p>
                           {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
                         </div>
                         <div className="flex gap-3 shrink-0">
-                          <button
-                            type="button"
-                            className={`text-xs ${a.is_active ? "text-stone-500" : "text-emerald-600 font-medium"}`}
-                            onClick={() => toggleAddonActive(a)}
-                          >
-                            {a.is_active ? "Hide" : "Show"}
+                          <button type="button" className="text-xs text-stone-500" onClick={() => toggleAddonActive(a)}>
+                            Remove
                           </button>
                           <button type="button" className="text-xs text-accent-ink" onClick={() => openEditAddonForm(a)}>
                             Edit

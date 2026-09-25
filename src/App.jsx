@@ -2144,6 +2144,11 @@ export default function App() {
   const pendingSettlementTotal = bookings
     .filter((b) => b.status === "accepted")
     .reduce((sum, b) => sum + Number(b.deposit_amount || 0), 0);
+  // What customers have actually paid so far — excludes "accepted" bookings,
+  // since those are still awaiting customer payment (that's pendingSettlementTotal).
+  const totalCollectedAmount = settlementBookings
+    .filter((b) => b.status !== "accepted")
+    .reduce((sum, b) => sum + Number(b.payments?.[0]?.amount || 0), 0);
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
@@ -3074,9 +3079,15 @@ export default function App() {
             <h1 className="font-serif text-3xl mb-1">Payments</h1>
             <p className="text-stone-500 text-sm mb-6">Deposit settlement status for {partnerVenue?.venues?.name}.</p>
 
-            <div className="bg-white border border-stone-200 rounded-xl p-5 mb-6 max-w-sm">
-              <p className="text-xs text-stone-500">Projected — awaiting customer payment</p>
-              <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
+            <div className="flex flex-wrap gap-4 mb-6">
+              <div className="bg-white border border-stone-200 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
+                <p className="text-xs text-stone-500">Total Amount — collected from customers</p>
+                <p className="text-2xl font-medium">{inr(totalCollectedAmount)}</p>
+              </div>
+              <div className="bg-white border border-stone-200 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
+                <p className="text-xs text-stone-500">Pending Amount — awaiting customer payment</p>
+                <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
+              </div>
             </div>
 
             {bookingsLoading && <p className="text-stone-400 text-sm">Loading…</p>}
@@ -3103,6 +3114,9 @@ export default function App() {
                   badgeLabel = "Deposit paid — payout after check-in";
                   badgeClass = "bg-sky-100 text-sky-800";
                 }
+                // The one number that matters most for scanning this list at a glance:
+                // what customers paid (or, for a still-unpaid booking, what's owed).
+                const rowAmount = b.status === "accepted" ? b.deposit_amount : payment?.amount ?? b.deposit_amount;
                 return (
                   <button
                     type="button"
@@ -3124,8 +3138,11 @@ export default function App() {
                         )}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`text-xs font-medium px-2 py-1 rounded ${badgeClass}`}>{badgeLabel}</span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <p className="text-lg font-medium">{inr(rowAmount)}</p>
+                        <span className={`text-xs font-medium px-2 py-1 rounded ${badgeClass}`}>{badgeLabel}</span>
+                      </div>
                       <span className="text-stone-300 text-lg leading-none">›</span>
                     </div>
                   </button>

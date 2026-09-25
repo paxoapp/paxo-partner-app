@@ -2242,40 +2242,60 @@ export default function App() {
           <>
         <p className="text-accent-ink text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>
         <h1 className="font-serif text-3xl mb-1">Booking requests</h1>
-        <p className="text-stone-500 text-sm mb-6">{partnerVenue?.venues?.name}</p>
+        <p className="text-stone-500 text-sm mb-6">
+          {pendingCount > 0
+            ? `${pendingCount} request${pendingCount === 1 ? "" : "s"} waiting on your response.`
+            : "You're all caught up — no requests waiting on you right now."}
+        </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-6 max-w-sm">
-          <div className="bg-white border border-stone-200 rounded-lg p-4">
-            <p className="text-xs text-stone-500">Awaiting your response</p>
-            <p className="text-2xl font-medium">{pendingCount}</p>
+        <div className="flex flex-wrap gap-4 mb-6">
+          <div
+            className={`rounded-xl p-5 flex-1 min-w-[200px] border ${
+              pendingCount > 0 ? "bg-amber-50 border-amber-300" : "bg-white border-stone-200"
+            }`}
+          >
+            <p className={`text-xs ${pendingCount > 0 ? "text-amber-800" : "text-stone-500"}`}>Awaiting your response</p>
+            <p className={`text-2xl font-medium ${pendingCount > 0 ? "text-amber-900" : ""}`}>{pendingCount}</p>
           </div>
-          <div className="bg-white border border-stone-200 rounded-lg p-4">
+          <div className="bg-white border border-stone-200 rounded-xl p-5 flex-1 min-w-[200px]">
             <p className="text-xs text-stone-500">Upcoming (accepted)</p>
             <p className="text-2xl font-medium">{upcomingCount}</p>
           </div>
         </div>
 
-        <div className="flex gap-2 mb-5">
-          {["pending", "accepted", "rejected", "cancelled", "all"].map((t) => (
-            <button
-              key={t}
-              className={`text-sm px-3 py-1.5 rounded-full border capitalize ${
-                activeTab === t ? "bg-slate-900 text-white border-slate-900" : "border-stone-300 text-stone-600"
-              }`}
-              onClick={() => setActiveTab(t)}
-            >
-              {t}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-2 mb-5">
+          {["pending", "accepted", "rejected", "cancelled", "all"].map((t) => {
+            const count = t === "all" ? bookings.length : bookings.filter((b) => b.status === t).length;
+            const active = activeTab === t;
+            return (
+              <button
+                key={t}
+                className={`text-sm px-3 py-1.5 rounded-full border capitalize transition-colors ${
+                  active
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "border-stone-300 text-stone-600 hover:border-stone-400 hover:bg-stone-50"
+                }`}
+                onClick={() => setActiveTab(t)}
+              >
+                {t}
+                <span className={active ? "text-stone-300" : "text-stone-400"}> {count}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <input
-          type="text"
-          placeholder="Search by Booking ID"
-          value={requestsSearch}
-          onChange={(e) => setRequestsSearch(e.target.value)}
-          className="border border-stone-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs mb-4"
-        />
+        <div className="relative w-full max-w-xs mb-4">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm" aria-hidden>
+            ⌕
+          </span>
+          <input
+            type="text"
+            placeholder="Search by Booking ID"
+            value={requestsSearch}
+            onChange={(e) => setRequestsSearch(e.target.value)}
+            className="border border-stone-300 rounded-lg pl-8 pr-3 py-2 text-sm w-full"
+          />
+        </div>
 
         {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
         {bookingsLoading && (
@@ -2290,14 +2310,20 @@ export default function App() {
           </div>
         )}
         {!bookingsLoading && filtered.length === 0 && (
-          <p className="text-stone-400 text-sm">No {activeTab === "all" ? "" : activeTab} requests.</p>
+          <div className="border border-dashed border-stone-300 rounded-xl p-8 text-center">
+            <p className="text-stone-400 text-sm">
+              {requestsSearch
+                ? "No requests match that search."
+                : `No ${activeTab === "all" ? "" : activeTab} requests${activeTab === "all" ? "" : " right now"}.`}
+            </p>
+          </div>
         )}
 
         <div className="flex flex-col gap-3">
           {filtered.map((b) => {
             const mins = b.status === "pending" ? minutesLeft(b.partner_response_deadline) : null;
             return (
-              <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white">
+              <div key={b.id} className="border border-stone-200 rounded-xl p-5 bg-white hover:border-stone-300 transition-colors">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-stone-900">{b.contact_name}</p>

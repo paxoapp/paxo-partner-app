@@ -2249,17 +2249,13 @@ export default function App() {
         </p>
 
         <div className="flex flex-wrap gap-4 mb-6">
-          <div
-            className={`rounded-xl p-5 flex-1 min-w-[200px] border ${
-              pendingCount > 0 ? "bg-amber-50 border-amber-300" : "bg-white border-stone-200"
-            }`}
-          >
-            <p className={`text-xs ${pendingCount > 0 ? "text-amber-800" : "text-stone-500"}`}>Awaiting your response</p>
-            <p className={`text-2xl font-medium ${pendingCount > 0 ? "text-amber-900" : ""}`}>{pendingCount}</p>
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 flex-1 min-w-[200px]">
+            <p className="text-xs text-amber-800">Awaiting your response</p>
+            <p className="text-2xl font-medium text-amber-900">{pendingCount}</p>
           </div>
-          <div className="bg-white border border-stone-200 rounded-xl p-5 flex-1 min-w-[200px]">
-            <p className="text-xs text-stone-500">Upcoming (accepted)</p>
-            <p className="text-2xl font-medium">{upcomingCount}</p>
+          <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-5 flex-1 min-w-[200px]">
+            <p className="text-xs text-emerald-800">Upcoming (accepted)</p>
+            <p className="text-2xl font-medium text-emerald-900">{upcomingCount}</p>
           </div>
         </div>
 

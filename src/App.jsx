@@ -3106,13 +3106,13 @@ export default function App() {
             <p className="text-stone-500 text-sm mb-6">Deposit settlement status for {partnerVenue?.venues?.name}.</p>
 
             <div className="flex flex-wrap gap-4 mb-6">
-              <div className="bg-white border border-stone-200 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
-                <p className="text-xs text-stone-500">Total Amount — collected from customers</p>
-                <p className="text-2xl font-medium">{inr(totalCollectedAmount)}</p>
+              <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
+                <p className="text-xs text-emerald-800">Total Amount — collected from customers</p>
+                <p className="text-2xl font-medium text-emerald-900">{inr(totalCollectedAmount)}</p>
               </div>
-              <div className="bg-white border border-stone-200 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
-                <p className="text-xs text-stone-500">Pending Amount — awaiting customer payment</p>
-                <p className="text-2xl font-medium">{inr(pendingSettlementTotal)}</p>
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 max-w-sm flex-1 min-w-[220px]">
+                <p className="text-xs text-amber-800">Pending Amount — awaiting customer payment</p>
+                <p className="text-2xl font-medium text-amber-900">{inr(pendingSettlementTotal)}</p>
               </div>
             </div>
 

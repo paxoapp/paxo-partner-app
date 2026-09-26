@@ -979,7 +979,9 @@ export default function App() {
 
   // Shadow-onboarding checklist: only needed while the venue is approved but
   // not yet published to customers, so this stays quiet for every already-
-  // live partner (the vast majority) instead of firing on every screen visit.
+  // live partner (the vast majority). Re-fetched on every screen change (not
+  // just once on load) so it picks up photos/menu/packages the partner just
+  // added elsewhere and reflects the true state when they come back to look.
   useEffect(() => {
     if (
       session &&
@@ -989,7 +991,7 @@ export default function App() {
     ) {
       loadShadowChecklist(session.token, partnerVenue.venue_id);
     }
-  }, [session, partnerVenue, loadShadowChecklist]);
+  }, [screen, session, partnerVenue, loadShadowChecklist]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has

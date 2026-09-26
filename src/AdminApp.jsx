@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { sb, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY } from "./supabase";
-import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
+import { REJECTION_REASONS, VENUE_STATUS_LABELS, validateGstinFormat } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
 
@@ -421,6 +421,10 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
+  // Format/checksum check only -- confirms the GSTIN is well-formed, not that
+  // it's actually registered with the government. That still needs a human
+  // look at the uploaded document (or a future paid verification API).
+  const gstFormatCheck = hasGst ? validateGstinFormat(venue.gst_no) : null;
 
   const checklistItems = shadowChecklist
     ? [
@@ -562,7 +566,34 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         <h3 className="font-medium text-sm mb-2">Stage 2 — Documents</h3>
         {hasGst ? (
           <div className="flex flex-col gap-2 text-sm">
-            <Row label="GST number" value={venue.gst_no} />
+            <Row
+              label="GST number"
+              value={
+                venue.gst_no ? (
+                  <span className="flex items-center gap-2">
+                    {venue.gst_no}
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        gstFormatCheck?.valid
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                      title={gstFormatCheck?.valid ? "" : gstFormatCheck?.reason}
+                    >
+                      {gstFormatCheck?.valid ? "Format OK" : "Format check failed"}
+                    </span>
+                  </span>
+                ) : (
+                  ""
+                )
+              }
+            />
+            {!gstFormatCheck?.valid && (
+              <p className="text-xs text-amber-700 -mt-1">
+                {gstFormatCheck?.reason} This is a structural check only, not confirmation the GSTIN is
+                registered with the government — verify the uploaded document before marking it verified.
+              </p>
+            )}
             <DocLink path={venue.gst_document_url} label="GST document" onView={setViewingDoc} />
             <DocLink path={venue.liquor_license_url} label="Liquor license" onView={setViewingDoc} />
             <DocLink path={venue.fssai_license_url} label="FSSAI license" onView={setViewingDoc} />

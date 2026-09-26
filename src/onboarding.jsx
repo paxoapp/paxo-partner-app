@@ -35,6 +35,33 @@ export const VENUE_STATUS_LABELS = {
   rejected: "Rejected",
 };
 
+// GSTIN structural + check-digit validation (the same mod-36 checksum algorithm
+// the GST portal itself uses). This only proves a GSTIN is well-formed and
+// internally consistent -- it does NOT confirm the number is actually
+// registered or active with the government. That would need a paid
+// third-party verification API and is a separate, later step if ever needed.
+const GSTIN_CODE_POINTS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const GSTIN_SHAPE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+export function validateGstinFormat(rawGstin) {
+  const value = (rawGstin || "").trim().toUpperCase();
+  if (!value) return { valid: false, reason: "" };
+  if (!GSTIN_SHAPE.test(value)) {
+    return { valid: false, reason: "Doesn't match the 15-character GSTIN format (e.g. 07ABCDE1234F1Z5)." };
+  }
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const factor = i % 2 === 0 ? 1 : 2;
+    const product = factor * GSTIN_CODE_POINTS.indexOf(value[i]);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  const expectedChecksum = GSTIN_CODE_POINTS[(36 - (sum % 36)) % 36];
+  if (value[14] !== expectedChecksum) {
+    return { valid: false, reason: "Check digit doesn't match — please double-check for a typo." };
+  }
+  return { valid: true, reason: "" };
+}
+
 export const AGREEMENT_POLICY_VERSION = "v1";
 
 export async function recordAgreementAcceptance(session, venueId, checkpoint) {
@@ -295,12 +322,17 @@ function DocumentsForm({ session, venue, onSubmitted }) {
   const [declared, setDeclared] = useState(false);
 
   const hasGstDoc = !!venue.gst_document_url;
+  const gstCheck = validateGstinFormat(gstNo);
 
   async function submit(e) {
     e.preventDefault();
     setError("");
     if (!gstNo.trim()) {
       setError("GST number is required.");
+      return;
+    }
+    if (!gstCheck.valid) {
+      setError(gstCheck.reason || "Please enter a valid GSTIN.");
       return;
     }
     if (!hasGstDoc && !gstFile) {
@@ -313,7 +345,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
     }
     setSaving(true);
     try {
-      const body = { gst_no: gstNo.trim() };
+      const body = { gst_no: gstNo.trim().toUpperCase() };
       if (gstFile) body.gst_document_url = await uploadPartnerDocument(session.token, venue.id, gstFile, "gst");
       if (liquorFile) body.liquor_license_url = await uploadPartnerDocument(session.token, venue.id, liquorFile, "liquor");
       if (fssaiFile) body.fssai_license_url = await uploadPartnerDocument(session.token, venue.id, fssaiFile, "fssai");
@@ -344,7 +376,19 @@ function DocumentsForm({ session, venue, onSubmitted }) {
       </p>
 
       <Field label="GST number *">
-        <input className={inputCls} value={gstNo} onChange={(e) => setGstNo(e.target.value)} />
+        <input
+          className={inputCls}
+          value={gstNo}
+          onChange={(e) => setGstNo(e.target.value.toUpperCase())}
+          placeholder="e.g. 07ABCDE1234F1Z5"
+          maxLength={15}
+        />
+        {gstNo.trim() && !gstCheck.valid && (
+          <p className="text-rose-400 text-xs mt-1">{gstCheck.reason}</p>
+        )}
+        {gstNo.trim() && gstCheck.valid && (
+          <p className="text-emerald-400 text-xs mt-1">Format looks valid.</p>
+        )}
       </Field>
       <Field label={`GST document ${hasGstDoc ? "(uploaded — choose a file to replace)" : "*"}`}>
         <input type="file" className={fileCls} accept="image/*,application/pdf" onChange={(e) => setGstFile(e.target.files[0] || null)} />
@@ -368,7 +412,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
 
       {error && <p className="text-rose-400 text-sm">{error}</p>}
       <button
-        disabled={saving || !declared}
+        disabled={saving || !declared || !gstCheck.valid}
         className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50 mt-1 self-start"
       >
         {saving ? "Uploading…" : "Submit documents"}

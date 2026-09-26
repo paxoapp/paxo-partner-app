@@ -315,6 +315,32 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
     };
   }, [venue.id, session.token]);
 
+  // Shadow-onboarding checklist -- only fetched while the venue is approved
+  // but not yet published to customers (mirrors the partner app's own
+  // ShadowModeBanner checklist, same three id-only queries).
+  const [shadowChecklist, setShadowChecklist] = useState(null);
+  useEffect(() => {
+    if (venue.status !== "approved" || venue.is_live) return undefined;
+    let cancelled = false;
+    Promise.all([
+      sb(`/rest/v1/venue_images?venue_id=eq.${venue.id}&select=id`, { token: session.token }),
+      sb(`/rest/v1/venue_packages?venue_id=eq.${venue.id}&is_published=eq.true&select=id`, { token: session.token }),
+      sb(`/rest/v1/menu_categories?venue_id=eq.${venue.id}&select=menu_items(id)`, { token: session.token }),
+    ])
+      .then(([photos, publishedPackages, categories]) => {
+        if (cancelled) return;
+        setShadowChecklist({
+          photos: photos.length,
+          publishedPackages: publishedPackages.length,
+          menuItems: categories.reduce((sum, c) => sum + (c.menu_items?.length || 0), 0),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [venue.id, venue.status, venue.is_live, session.token]);
+
   async function toggleAddon(addon) {
     setAddonError("");
     setAddonBusyId(addon.id);
@@ -395,6 +421,21 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
+
+  const checklistItems = shadowChecklist
+    ? [
+        { done: !!venue.address, label: "Venue address filled in" },
+        { done: shadowChecklist.photos >= 3, label: `At least 3 photos (${shadowChecklist.photos} uploaded)` },
+        { done: shadowChecklist.menuItems >= 1, label: "Menu added" },
+        {
+          done: shadowChecklist.publishedPackages >= 2,
+          label: `At least 2 published packages (${shadowChecklist.publishedPackages})`,
+        },
+        { done: !!venue.gst_verified, label: "GST verified" },
+      ]
+    : [];
+  const allChecklistItemsDone = checklistItems.length > 0 && checklistItems.every((i) => i.done);
+
   const toggleGstVerified = () => {
     const confirmMsg = venue.gst_verified
       ? "Remove GST verification for this venue? This unmarks the venue's GST badge."
@@ -453,6 +494,44 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {venue.status === "approved" && !venue.is_live && (
+        <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-sm font-medium text-sky-800">Shadow mode — hidden from customers</p>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Publish "${venue.name}" to customers? It will immediately become visible and bookable.`
+                  )
+                ) {
+                  patch({ is_live: true }, "publish_to_customers");
+                }
+              }}
+              disabled={busy || !allChecklistItemsDone}
+              className="text-xs bg-stone-900 text-white rounded px-3 py-1.5 disabled:opacity-50 shrink-0"
+            >
+              Publish to customers
+            </button>
+          </div>
+          {!shadowChecklist ? (
+            <p className="text-xs text-sky-600">Loading checklist…</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {checklistItems.map((i) => (
+                <li
+                  key={i.label}
+                  className={`text-xs flex items-center gap-1.5 ${i.done ? "text-emerald-700" : "text-sky-700"}`}
+                >
+                  <span>{i.done ? "✓" : "○"}</span>
+                  {i.label}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

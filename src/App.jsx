@@ -4346,10 +4346,15 @@ export default function App() {
 
             <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">
               <h2 className="text-sm font-medium mb-1">Venue Photos</h2>
-              <p className="text-stone-500 text-xs mb-4">
+              <p className="text-stone-500 text-xs mb-2">
                 The first photo becomes your venue's cover image on the customer app. Up to{" "}
                 {VENUE_PHOTOS_LIMIT} photos.
               </p>
+              <ul className="text-stone-500 text-xs mb-4 list-disc pl-4 space-y-0.5">
+                <li>Use a landscape (wide) photo, not a square or portrait one — it's cropped to fit a wide banner, so tall or square images get cut off.</li>
+                <li>Show the actual venue — the seating area, bar, entrance, or a decorated event — rather than a logo or a graphic.</li>
+                <li>Well-lit, high-resolution photos (at least 1200px wide) look best; avoid heavy filters or text overlays.</li>
+              </ul>
 
               {venuePhotoError && <p className="text-rose-600 text-sm mb-3">{venuePhotoError}</p>}
 

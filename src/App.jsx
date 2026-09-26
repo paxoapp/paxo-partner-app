@@ -462,6 +462,9 @@ export default function App() {
   const [packageForm, setPackageForm] = useState(null);
   const [packageError, setPackageError] = useState("");
   const [packageSaving, setPackageSaving] = useState(false);
+  // Per-category collapse state for the quota rows below — { [category_kind]: true } once
+  // a partner has finished configuring that quota and closes it to reduce clutter.
+  const [collapsedQuotaRows, setCollapsedQuotaRows] = useState({});
 
   const [addons, setAddons] = useState([]);
   const [catalog, setCatalog] = useState([]);
@@ -3696,32 +3699,75 @@ export default function App() {
                     ).length;
                     const shortfall = isPool && q.checked && kindItems.length > 0 && q.count > pickedCount;
 
+                    const collapsed = q.checked && !!collapsedQuotaRows[kind];
+
                     return (
                       <div key={kind} className="border border-stone-200 rounded-lg p-3">
-                        <label className="flex items-center gap-2 text-sm font-medium mb-2">
-                          <input
-                            type="checkbox"
-                            checked={q.checked}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setPackageForm((f) => ({
-                                ...f,
-                                quotas: { ...f.quotas, [kind]: { ...f.quotas[kind], checked } },
-                                // Unchecking a brand-pool quota drops its picked items.
-                                poolItemIds:
-                                  checked || !isPool
-                                    ? f.poolItemIds
-                                    : f.poolItemIds.filter(
-                                        (id) => !kindItems.some((it) => it.id === id)
-                                      ),
-                              }));
-                            }}
-                          />
-                          {label}
-                        </label>
-                        {q.checked && (
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={q.checked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setPackageForm((f) => ({
+                                  ...f,
+                                  quotas: { ...f.quotas, [kind]: { ...f.quotas[kind], checked } },
+                                  // Unchecking a brand-pool quota drops its picked items.
+                                  poolItemIds:
+                                    checked || !isPool
+                                      ? f.poolItemIds
+                                      : f.poolItemIds.filter(
+                                          (id) => !kindItems.some((it) => it.id === id)
+                                        ),
+                                }));
+                                // Re-checking later should start expanded again.
+                                if (!checked) {
+                                  setCollapsedQuotaRows((c) => ({ ...c, [kind]: false }));
+                                }
+                              }}
+                            />
+                            {label}
+                          </label>
+                          {q.checked && (
+                            <button
+                              type="button"
+                              className="text-xs text-accent-ink underline shrink-0"
+                              onClick={() =>
+                                setCollapsedQuotaRows((c) => ({ ...c, [kind]: !c[kind] }))
+                              }
+                            >
+                              {collapsed ? "Edit" : "Done, close"}
+                            </button>
+                          )}
+                        </div>
+
+                        {collapsed && (
+                          <p className="text-xs text-stone-500">
+                            {q.count} {quotaLabel(kind, q.count)}
+                            {isPool &&
+                              ` · ${pickedCount} item${pickedCount === 1 ? "" : "s"} in pool`}
+                            {shortfall && (
+                              <span className="text-rose-600">
+                                {" "}
+                                — needs {q.count - pickedCount} more selected
+                              </span>
+                            )}
+                          </p>
+                        )}
+
+                        {q.checked && !collapsed && (
                           <>
-                            <div className="flex gap-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={q.count <= 1}
+                                className="w-8 h-8 rounded-full border border-stone-300 text-stone-600 text-lg leading-none font-medium flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                                onClick={() => setQuota(kind, { count: Math.max(1, q.count - 1) })}
+                                aria-label={`Decrease ${label} quota`}
+                              >
+                                −
+                              </button>
                               {[1, 2, 3, 4, 5].map((n) => (
                                 <button
                                   type="button"
@@ -3736,6 +3782,15 @@ export default function App() {
                                   {n}
                                 </button>
                               ))}
+                              <button
+                                type="button"
+                                disabled={q.count >= 5}
+                                className="w-8 h-8 rounded-full border border-stone-300 text-stone-600 text-lg leading-none font-medium flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                                onClick={() => setQuota(kind, { count: Math.min(5, q.count + 1) })}
+                                aria-label={`Increase ${label} quota`}
+                              >
+                                +
+                              </button>
                             </div>
 
                             {isPool && (

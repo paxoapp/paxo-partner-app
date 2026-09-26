@@ -4351,9 +4351,13 @@ export default function App() {
                 {VENUE_PHOTOS_LIMIT} photos.
               </p>
               <ul className="text-stone-500 text-xs mb-4 list-disc pl-4 space-y-0.5">
-                <li>Use a landscape (wide) photo, not a square or portrait one — it's cropped to fit a wide banner, so tall or square images get cut off.</li>
+                <li>
+                  Use a 16:9 landscape photo (e.g. 1600×900px or 1280×720px) — the cover banner is
+                  cropped to this shape on every screen, phone and laptop alike, so a square or
+                  portrait photo gets cut off.
+                </li>
                 <li>Show the actual venue — the seating area, bar, entrance, or a decorated event — rather than a logo or a graphic.</li>
-                <li>Well-lit, high-resolution photos (at least 1200px wide) look best; avoid heavy filters or text overlays.</li>
+                <li>Well-lit, high-resolution photos (at least 1280px wide) look best; avoid heavy filters or text overlays.</li>
               </ul>
 
               {venuePhotoError && <p className="text-rose-600 text-sm mb-3">{venuePhotoError}</p>}

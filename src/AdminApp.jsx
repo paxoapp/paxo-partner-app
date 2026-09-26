@@ -455,8 +455,8 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
   const toggleGstVerified = () => {
     const confirmMsg = venue.gst_verified
-      ? "Remove GST verification for this venue? This unmarks the venue's GST badge."
-      : "Mark this venue's GST documents as verified? This shows a trust badge to customers.";
+      ? "Remove GST verification for this venue? This is an internal record only — it does not affect the customer-facing Verified badge."
+      : "Mark this venue's GST documents as verified? This is an internal record only, used for the shadow-mode publish checklist — it does not by itself show a badge to customers.";
     if (!window.confirm(confirmMsg)) return;
     patch(
       venue.gst_verified
@@ -464,6 +464,20 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         : { gst_verified: true, gst_verified_at: nowIso(), gst_verified_by: session.userId },
       venue.gst_verified ? "gst_unverify" : "gst_verify"
     );
+  };
+
+  // The customer-facing "✓ Verified" badge (shown on the venue detail page and
+  // the partner dashboard) is driven entirely by is_verified — a separate flag
+  // from gst_verified above. Originally it could only be set once, during the
+  // "Approve with Verified tag" action at first approval; this lets an admin
+  // grant or remove it any time afterwards too, e.g. once GST is verified for
+  // a venue that was first approved without the tag.
+  const toggleIsVerified = () => {
+    const confirmMsg = venue.is_verified
+      ? "Remove the customer-facing Verified badge from this venue?"
+      : "Show the customer-facing Verified badge for this venue? This is what customers and the partner see as the trust badge.";
+    if (!window.confirm(confirmMsg)) return;
+    patch({ is_verified: !venue.is_verified }, venue.is_verified ? "unverify" : "verify");
   };
   // PostgREST returns this embed as a single object (the FK resolves to-one),
   // not an array — tolerate both shapes.
@@ -635,6 +649,30 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
                 {venue.gst_verified ? "Mark unverified" : "Mark GST verified"}
               </button>
             </div>
+            {venue.status === "approved" && (
+              <div className="flex items-center justify-between gap-3 pt-2 mt-1 border-t border-stone-100">
+                <div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      venue.is_verified ? "bg-amber-100 text-amber-800" : "bg-stone-100 text-stone-600"
+                    }`}
+                  >
+                    {venue.is_verified ? "✓ Verified badge shown to customers" : "No customer-facing badge"}
+                  </span>
+                </div>
+                <button
+                  onClick={toggleIsVerified}
+                  disabled={busy}
+                  className={`text-xs rounded px-3 py-1.5 disabled:opacity-50 ${
+                    venue.is_verified
+                      ? "border border-stone-300 text-stone-600"
+                      : "bg-amber-500 text-white"
+                  }`}
+                >
+                  {venue.is_verified ? "Remove Verified badge" : "Show Verified badge"}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-sm text-amber-700">Awaiting documents from partner.</p>

@@ -295,6 +295,49 @@ function VenueStateBanner({ venue }) {
   );
 }
 
+// Shadow-onboarding status: shown on every screen (like VenueStateBanner
+// above) once a venue is approved but PAXO hasn't published it to customers
+// yet. `checklist` is null until loadShadowChecklist resolves -- render
+// nothing rather than a flash of "0 of 5 done" while it's still loading.
+function ShadowModeBanner({ venue, checklist }) {
+  if (!venue || venue.status !== "approved" || venue.is_live || !checklist) return null;
+  const items = [
+    { done: !!venue.address, label: "Add your venue's address" },
+    { done: checklist.photos >= 3, label: "Upload at least 3 venue photos" },
+    { done: checklist.menuItems >= 1, label: "Add your menu" },
+    { done: checklist.publishedPackages >= 2, label: "Publish at least 2 packages" },
+    { done: !!venue.gst_verified, label: "Get your GST documents verified by PAXO" },
+  ];
+  const allDone = items.every((i) => i.done);
+  return (
+    <div className="rounded-lg border p-4 mb-6 bg-sky-50 border-sky-200">
+      <p className="text-sm font-semibold text-sky-800">
+        {allDone
+          ? "You're all set — waiting on PAXO to publish your venue"
+          : "Your venue isn't visible to customers yet"}
+      </p>
+      <p className="text-xs text-sky-600 mt-1">
+        {allDone
+          ? "Everything's ready. PAXO will review and publish your venue to customers shortly."
+          : "Complete these so PAXO can publish you to customers:"}
+      </p>
+      {!allDone && (
+        <ul className="mt-2 flex flex-col gap-1">
+          {items.map((i) => (
+            <li
+              key={i.label}
+              className={`text-xs flex items-center gap-1.5 ${i.done ? "text-emerald-700" : "text-sky-700"}`}
+            >
+              <span>{i.done ? "✓" : "○"}</span>
+              {i.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   // Forces a re-render every 30s so minutesLeft()-driven countdowns (partner
   // response window, etc.) tick down live instead of freezing until an
@@ -821,6 +864,29 @@ export default function App() {
     }
   }, []);
 
+  // Lightweight, id-only counts backing the shadow-onboarding checklist
+  // (ShadowModeBanner) -- deliberately separate from the heavier
+  // loadVenuePhotos/loadPackages/loadMenu above (which fetch full rows for
+  // their own screens) so a partner still in shadow mode doesn't pull full
+  // photo/package/menu payloads just to render a checklist.
+  const [shadowChecklist, setShadowChecklist] = useState(null);
+  const loadShadowChecklist = useCallback(async (token, venueId) => {
+    try {
+      const [photos, publishedPackages, categories] = await Promise.all([
+        sb(`/rest/v1/venue_images?venue_id=eq.${venueId}&select=id`, { token }),
+        sb(`/rest/v1/venue_packages?venue_id=eq.${venueId}&is_published=eq.true&select=id`, { token }),
+        sb(`/rest/v1/menu_categories?venue_id=eq.${venueId}&select=menu_items(id)`, { token }),
+      ]);
+      setShadowChecklist({
+        photos: photos.length,
+        publishedPackages: publishedPackages.length,
+        menuItems: categories.reduce((sum, c) => sum + (c.menu_items?.length || 0), 0),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const loadAddons = useCallback(async (token, venueId) => {
     setAddonsLoading(true);
     try {
@@ -907,6 +973,20 @@ export default function App() {
       loadVenuePhotos(session.token, partnerVenue.venue_id);
     }
   }, [screen, session, partnerVenue, loadVenuePhotos]);
+
+  // Shadow-onboarding checklist: only needed while the venue is approved but
+  // not yet published to customers, so this stays quiet for every already-
+  // live partner (the vast majority) instead of firing on every screen visit.
+  useEffect(() => {
+    if (
+      session &&
+      partnerVenue?.venue_id &&
+      partnerVenue?.venues?.status === "approved" &&
+      !partnerVenue?.venues?.is_live
+    ) {
+      loadShadowChecklist(session.token, partnerVenue.venue_id);
+    }
+  }, [session, partnerVenue, loadShadowChecklist]);
 
   // Establish the app's auth state from a real session, then route. Nothing that
   // writes to the DB (e.g. the Stage 1 venue INSERT) is reachable until this has
@@ -2238,6 +2318,7 @@ export default function App() {
       <main key={screen} className="max-w-4xl mx-auto px-5 py-8 animate-[fadein_0.2s_ease-out]">
         <style>{`@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
         <VenueStateBanner venue={venue} />
+        <ShadowModeBanner venue={venue} checklist={shadowChecklist} />
         {screen === "dashboard" && (
           <>
         <p className="text-accent-ink text-sm font-medium mb-1">Welcome back, {partnerVenue?.venues?.name}</p>

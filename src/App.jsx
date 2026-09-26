@@ -3573,15 +3573,16 @@ export default function App() {
                   <label className="text-sm font-medium block mb-1">Inclusions (one per line)</label>
                   <textarea
                     rows={4}
-                    placeholder={"DJ & sound system\nStandard decor\nIn-house catering"}
+                    placeholder={"e.g. Welcome drink\nThemed decor\nComplimentary parking"}
                     className="border border-stone-300 rounded px-3 py-2 text-sm w-full"
                     value={packageForm.inclusions}
                     onChange={(e) => setPackageForm({ ...packageForm, inclusions: e.target.value })}
                   />
                   <p className="text-xs text-stone-400 mt-1">
-                    Use this for things not already covered by your quota selections above (e.g. welcome
-                    drink, decor, DJ). Avoid restating food or beverage counts you've already set as
-                    quotas — customers see both, and mismatched numbers look confusing.
+                    Use this for extras not already covered above — welcome drink, decor, parking, and
+                    the like. DJ has its own Yes/No toggle elsewhere on this form, so don't repeat it
+                    here. Avoid restating food or beverage counts you've already set as quotas —
+                    customers see both, and mismatched numbers look confusing.
                   </p>
                 </div>
 

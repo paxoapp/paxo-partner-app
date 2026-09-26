@@ -419,6 +419,19 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   const clearOnHold = () =>
     patch({ on_hold: false, on_hold_reason: null, timeout_strike_count: 0 }, "clear_on_hold");
 
+  // A rejected venue previously had no way back in — once a partner fixed
+  // whatever got them rejected and resubmitted, the admin queue only showed
+  // static "Re-opening a decision isn't available yet" text, with no button
+  // to actually re-review it. This sends it back to whichever stage it was
+  // rejected from (stage1_cleared_at tells us which, same signal the status
+  // stepper already uses) so the normal approve/reject buttons for that
+  // stage reappear.
+  const reopenForReview = () =>
+    patch(
+      { status: venue.stage1_cleared_at ? "under_review" : "submitted", rejection_note: null },
+      "reopen_for_review"
+    );
+
   const hasGst = !!venue.gst_no;
   const canVerify = hasGst && !!venue.liquor_license_url && !!venue.fssai_license_url;
   // Format/checksum check only -- confirms the GSTIN is well-formed, not that
@@ -758,11 +771,30 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         </div>
       )}
 
-      {(venue.status === "approved" || venue.status === "rejected") && !rejecting && (
+      {venue.status === "approved" && !rejecting && (
         <p className="text-sm text-stone-500">
-          This venue is {VENUE_STATUS_LABELS[venue.status].toLowerCase()}. Re-opening a decision isn't
-          available yet.
+          This venue is approved. Re-opening a decision isn't available yet.
         </p>
+      )}
+
+      {venue.status === "rejected" && !rejecting && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-stone-500">
+            This venue is rejected. If the partner has resubmitted or fixed the issue, reopen it to
+            put it back at{" "}
+            {venue.stage1_cleared_at ? "Document Verification" : "Basic Info Review"} for another
+            look.
+          </p>
+          <div>
+            <button
+              disabled={busy}
+              onClick={reopenForReview}
+              className="bg-stone-900 text-white text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+            >
+              {busy ? "Working…" : "Reopen for review"}
+            </button>
+          </div>
+        </div>
       )}
 
       {rejecting && (

@@ -57,6 +57,18 @@ function dateConflicts(booking, all) {
   );
 }
 
+// A booking can carry more than one payments row -- e.g. an abandoned
+// Razorpay order created before the customer's real, successfully paid one.
+// `payments?.[0]` picked whichever was created first, which is often the
+// stale unpaid one, showing the wrong (or blank) amount/payout on a real,
+// paid booking. Prefer an actually-paid row (most recent by paid_at), and
+// only fall back to the first row if nothing has been paid yet.
+function primaryPayment(booking) {
+  const rows = booking?.payments || [];
+  const paid = rows.filter((p) => p.status === "paid").sort((a, b) => new Date(b.paid_at) - new Date(a.paid_at));
+  return paid[0] || rows[0] || null;
+}
+
 const REJECT_REASONS = [
   "Date not available",
   "Guest count exceeds capacity",
@@ -377,6 +389,13 @@ export default function App() {
   const [checkinInput, setCheckinInput] = useState({}); // keyed by booking id
   const [checkinError, setCheckinError] = useState({}); // keyed by booking id
   const [checkinBusyId, setCheckinBusyId] = useState(null);
+  // Per-row busy ids for toggle/delete actions that previously had no
+  // loading/disabled state at all, so a fast double-click/tap could fire
+  // overlapping requests (same bug class already fixed on the admin side's
+  // package-hold button).
+  const [menuItemBusyId, setMenuItemBusyId] = useState(null);
+  const [packageBusyId, setPackageBusyId] = useState(null);
+  const [addonBusyId, setAddonBusyId] = useState(null);
   const [menuExpanded, setMenuExpanded] = useState({}); // { [bookingId]: true } — Finalized menu open; collapsed by default
   const [detailBookingId, setDetailBookingId] = useState(null); // booking id shown in the detail view
   const [paymentDetailId, setPaymentDetailId] = useState(null); // booking id shown in the Payments transaction detail view
@@ -671,6 +690,7 @@ export default function App() {
   }
 
   async function toggleItemAvailable(item) {
+    setMenuItemBusyId(item.id);
     try {
       await sb(`/rest/v1/menu_items?id=eq.${item.id}`, {
         method: "PATCH",
@@ -681,15 +701,20 @@ export default function App() {
       await loadMenu(session.token, partnerVenue.venue_id);
     } catch (e) {
       setMenuError(e.message);
+    } finally {
+      setMenuItemBusyId(null);
     }
   }
 
   async function deleteItem(id) {
+    setMenuItemBusyId(id);
     try {
       await sb(`/rest/v1/menu_items?id=eq.${id}`, { method: "DELETE", token: session.token, prefer: "return=minimal" });
       await loadMenu(session.token, partnerVenue.venue_id);
     } catch (e) {
       setMenuError(e.message);
+    } finally {
+      setMenuItemBusyId(null);
     }
   }
 
@@ -1732,6 +1757,7 @@ export default function App() {
 
   async function togglePackagePublished(pkg) {
     setPackageError("");
+    setPackageBusyId(pkg.id);
     try {
       await sb(`/rest/v1/venue_packages?id=eq.${pkg.id}`, {
         method: "PATCH",
@@ -1742,11 +1768,14 @@ export default function App() {
       await loadPackages(session.token, partnerVenue.venue_id);
     } catch (e) {
       setPackageError(e.message);
+    } finally {
+      setPackageBusyId(null);
     }
   }
 
   async function deletePackage(id) {
     setPackageError("");
+    setPackageBusyId(id);
     try {
       await sb(`/rest/v1/menu_quota_rules?package_id=eq.${id}`, {
         method: "DELETE",
@@ -1761,6 +1790,8 @@ export default function App() {
       await loadPackages(session.token, partnerVenue.venue_id);
     } catch (e) {
       setPackageError(e.message);
+    } finally {
+      setPackageBusyId(null);
     }
   }
 
@@ -1840,6 +1871,7 @@ export default function App() {
 
   async function toggleAddonActive(addon) {
     setAddonError("");
+    setAddonBusyId(addon.id);
     try {
       await sb(`/rest/v1/venue_addons?id=eq.${addon.id}`, {
         method: "PATCH",
@@ -1850,11 +1882,14 @@ export default function App() {
       await loadAddons(session.token, partnerVenue.venue_id);
     } catch (e) {
       setAddonError(e.message);
+    } finally {
+      setAddonBusyId(null);
     }
   }
 
   async function deleteAddon(id) {
     setAddonError("");
+    setAddonBusyId(id);
     try {
       await sb(`/rest/v1/venue_addons?id=eq.${id}`, {
         method: "DELETE",
@@ -1864,6 +1899,8 @@ export default function App() {
       await loadAddons(session.token, partnerVenue.venue_id);
     } catch (e) {
       setAddonError(e.message);
+    } finally {
+      setAddonBusyId(null);
     }
   }
 
@@ -2280,7 +2317,7 @@ export default function App() {
   const settlementBookings = bookings.filter(
     (b) =>
       ["accepted", "confirmed", "completed"].includes(b.status) ||
-      (b.status === "cancelled" && Number(b.payments?.[0]?.partner_payout_amount || 0) > 0)
+      (b.status === "cancelled" && Number(primaryPayment(b)?.partner_payout_amount || 0) > 0)
   );
   const pendingSettlementTotal = bookings
     .filter((b) => b.status === "accepted")
@@ -2289,7 +2326,7 @@ export default function App() {
   // since those are still awaiting customer payment (that's pendingSettlementTotal).
   const totalCollectedAmount = settlementBookings
     .filter((b) => b.status !== "accepted")
-    .reduce((sum, b) => sum + Number(b.payments?.[0]?.amount || 0), 0);
+    .reduce((sum, b) => sum + Number(primaryPayment(b)?.amount || 0), 0);
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
@@ -3195,8 +3232,16 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className={item.is_available ? "" : "text-stone-400 line-through"}>{item.name}</span>
                           <div className="flex items-center gap-3 shrink-0">
-                            <button className="text-xs text-stone-500" onClick={() => toggleItemAvailable(item)}>
-                              {item.is_available ? "Mark unavailable" : "Mark available"}
+                            <button
+                              className="text-xs text-stone-500 disabled:opacity-50"
+                              disabled={menuItemBusyId === item.id}
+                              onClick={() => toggleItemAvailable(item)}
+                            >
+                              {menuItemBusyId === item.id
+                                ? "Saving…"
+                                : item.is_available
+                                ? "Mark unavailable"
+                                : "Mark available"}
                             </button>
                             <button
                               className="text-xs text-accent-ink"
@@ -3204,8 +3249,12 @@ export default function App() {
                             >
                               {editingItemId === item.id ? "Cancel" : item.description ? "Edit" : "Add description"}
                             </button>
-                            <button className="text-xs text-rose-600" onClick={() => deleteItem(item.id)}>
-                              Remove
+                            <button
+                              className="text-xs text-rose-600 disabled:opacity-50"
+                              disabled={menuItemBusyId === item.id}
+                              onClick={() => deleteItem(item.id)}
+                            >
+                              {menuItemBusyId === item.id ? "Removing…" : "Remove"}
                             </button>
                           </div>
                         </div>
@@ -3329,7 +3378,7 @@ export default function App() {
             {bookingsLoading && <p className="text-stone-400 text-sm">Loading…</p>}
             <div className="flex flex-col gap-3">
               {settlementBookings.map((b) => {
-                const payment = b.payments?.[0];
+                const payment = primaryPayment(b);
                 const payoutAmount = payment?.partner_payout_amount;
                 const isSettled = payment?.settlement_status === "settled";
                 const checkedIn = Boolean(b.event_started_at);
@@ -3394,7 +3443,7 @@ export default function App() {
         {paymentDetailId && (() => {
           const b = bookings.find((x) => x.id === paymentDetailId);
           if (!b) return null;
-          const payment = b.payments?.[0];
+          const payment = primaryPayment(b);
           const addonTotal = (b.booking_addon_requests || [])
             .filter((a) => a.status === "confirmed" && a.price != null)
             .reduce((sum, a) => sum + Number(a.price || 0), 0);
@@ -4084,16 +4133,24 @@ export default function App() {
                     <div className="flex gap-3 shrink-0">
                       <button
                         type="button"
-                        className={`text-xs ${p.is_published ? "text-stone-500" : "text-emerald-600 font-medium"}`}
+                        disabled={packageBusyId === p.id}
+                        className={`text-xs disabled:opacity-50 ${
+                          p.is_published ? "text-stone-500" : "text-emerald-600 font-medium"
+                        }`}
                         onClick={() => togglePackagePublished(p)}
                       >
-                        {p.is_published ? "Unpublish" : "Publish"}
+                        {packageBusyId === p.id ? "Saving…" : p.is_published ? "Unpublish" : "Publish"}
                       </button>
                       <button type="button" className="text-xs text-accent-ink" onClick={() => openEditPackageForm(p)}>
                         Edit
                       </button>
-                      <button type="button" className="text-xs text-rose-600" onClick={() => deletePackage(p.id)}>
-                        Delete
+                      <button
+                        type="button"
+                        disabled={packageBusyId === p.id}
+                        className="text-xs text-rose-600 disabled:opacity-50"
+                        onClick={() => deletePackage(p.id)}
+                      >
+                        {packageBusyId === p.id ? "Deleting…" : "Delete"}
                       </button>
                     </div>
                   </div>
@@ -4266,14 +4323,24 @@ export default function App() {
                           {a.description && <p className="text-sm text-stone-500 mt-1">{a.description}</p>}
                         </div>
                         <div className="flex gap-3 shrink-0">
-                          <button type="button" className="text-xs text-stone-500" onClick={() => toggleAddonActive(a)}>
-                            Remove
+                          <button
+                            type="button"
+                            disabled={addonBusyId === a.id}
+                            className="text-xs text-stone-500 disabled:opacity-50"
+                            onClick={() => toggleAddonActive(a)}
+                          >
+                            {addonBusyId === a.id ? "Saving…" : "Remove"}
                           </button>
                           <button type="button" className="text-xs text-accent-ink" onClick={() => openEditAddonForm(a)}>
                             Edit
                           </button>
-                          <button type="button" className="text-xs text-rose-600" onClick={() => deleteAddon(a.id)}>
-                            Delete
+                          <button
+                            type="button"
+                            disabled={addonBusyId === a.id}
+                            className="text-xs text-rose-600 disabled:opacity-50"
+                            onClick={() => deleteAddon(a.id)}
+                          >
+                            {addonBusyId === a.id ? "Deleting…" : "Delete"}
                           </button>
                         </div>
                       </div>

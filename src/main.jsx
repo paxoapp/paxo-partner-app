@@ -13,6 +13,13 @@ const isAdmin =
   window.location.hostname === "admin.mypaxo.in" ||
   window.location.pathname.replace(/\/+$/, "").startsWith("/admin");
 
+if (isAdmin) {
+  const meta = document.createElement("meta");
+  meta.name = "robots";
+  meta.content = "noindex, nofollow";
+  document.head.appendChild(meta);
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     {isAdmin ? <AdminApp /> : <App />}

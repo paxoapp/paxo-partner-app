@@ -298,8 +298,8 @@ function VenueStateBanner({ venue }) {
         {onHold
           ? "You can still manage bookings and update your listing here. Once it's fixed, "
           : "Contact the PAXO team to resolve this: "}
-        <a href="mailto:paxoapp.in@gmail.com" className="underline font-medium">
-          paxoapp.in@gmail.com
+        <a href="mailto:support@mypaxo.in" className="underline font-medium">
+          support@mypaxo.in
         </a>
         {onHold ? " and we'll review it." : "."}
       </p>
@@ -4744,8 +4744,8 @@ export default function App() {
             <div className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4">
               <div>
                 <p className="text-sm font-medium">Email us</p>
-                <a href="mailto:paxoapp.in@gmail.com" className="text-sm text-stone-500 underline">
-                  paxoapp.in@gmail.com
+                <a href="mailto:support@mypaxo.in" className="text-sm text-stone-500 underline">
+                  support@mypaxo.in
                 </a>
               </div>
               <div className="border-t border-stone-100 pt-4">

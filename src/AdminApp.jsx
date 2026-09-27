@@ -1270,10 +1270,12 @@ const BOOKING_STATUS_CLS = {
   cancelled: "bg-rose-100 text-rose-800",
   unconfirmed: "bg-stone-200 text-stone-800",
   no_show: "bg-rose-100 text-rose-800",
+  payment_expired: "bg-stone-200 text-stone-700",
 };
 const BOOKING_STATUS_ORDER = [
   "pending",
   "accepted",
+  "payment_expired",
   "rejected",
   "confirmed",
   "unconfirmed",
@@ -1298,6 +1300,7 @@ const REQUEST_TABS = [
   ["all", "All"],
   ["pending", "Pending"],
   ["accepted", "Accepted"],
+  ["payment_expired", "Payment expired"],
   ["confirmed", "Confirmed"],
   ["unconfirmed", "Unconfirmed"],
   ["completed", "Completed"],
@@ -1622,6 +1625,7 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [packageError, setPackageError] = useState("");
   const [holdingPackageId, setHoldingPackageId] = useState(null);
+  const [packageHoldBusyId, setPackageHoldBusyId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1664,6 +1668,7 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
 
   async function setPackageHold(pkg, hold, reason) {
     setPackageError("");
+    setPackageHoldBusyId(pkg.id);
     try {
       const [row] = await sb(`/rest/v1/venue_packages?id=eq.${pkg.id}`, {
         method: "PATCH",
@@ -1680,6 +1685,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       setPackages((rows) => rows.map((r) => (r.id === row.id ? row : r)));
     } catch (e) {
       setPackageError(e.message);
+    } finally {
+      setPackageHoldBusyId(null);
     }
   }
 
@@ -1812,10 +1819,13 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
                   </div>
                   {holdingPackageId !== p.id && (
                     <button
+                      disabled={packageHoldBusyId === p.id}
                       onClick={() => (p.admin_hold ? setPackageHold(p, false, null) : setHoldingPackageId(p.id))}
-                      className={`text-xs font-medium shrink-0 ${p.admin_hold ? "text-emerald-700" : "text-rose-600"}`}
+                      className={`text-xs font-medium shrink-0 disabled:opacity-50 ${
+                        p.admin_hold ? "text-emerald-700" : "text-rose-600"
+                      }`}
                     >
-                      {p.admin_hold ? "Release hold" : "Put on hold"}
+                      {p.admin_hold ? (packageHoldBusyId === p.id ? "Releasing…" : "Release hold") : "Put on hold"}
                     </button>
                   )}
                 </div>
@@ -1825,7 +1835,7 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
                     reasons={HOLD_REASONS}
                     confirmLabel="Confirm hold"
                     tone="amber"
-                    busy={false}
+                    busy={packageHoldBusyId === p.id}
                     onConfirm={(text) => setPackageHold(p, true, text)}
                     onCancel={() => setHoldingPackageId(null)}
                   />
@@ -2586,7 +2596,7 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
 
   const sum = (arr, pick) => arr.reduce((s, x) => s + Number(pick(x) || 0), 0);
   const gmv = sum(
-    bookings.filter((b) => !["cancelled", "rejected"].includes(b.status)),
+    bookings.filter((b) => !["cancelled", "rejected", "payment_expired"].includes(b.status)),
     (b) => b.total_amount
   );
   const platformRevenue = sum(payments, (p) => p.platform_fee_amount);

@@ -411,6 +411,14 @@ export default function App() {
   const [venueGuestCapacitySaved, setVenueGuestCapacitySaved] = useState(false);
   const [venueGuestCapacityError, setVenueGuestCapacityError] = useState("");
   const [venueGuestCapacitySaving, setVenueGuestCapacitySaving] = useState(false);
+  // Availability: Live (always accepting) / Paused (never, until switched
+  // back) / Auto Set (daily schedule). See sync_venue_booking_clock in the
+  // DB — response countdowns freeze/resume automatically as this changes.
+  const [availabilityMode, setAvailabilityMode] = useState("live");
+  const [autoOpenTime, setAutoOpenTime] = useState("11:00");
+  const [autoCloseTime, setAutoCloseTime] = useState("20:00");
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState("");
   const [venuePhotos, setVenuePhotos] = useState([]);
   const [venuePhotosLoading, setVenuePhotosLoading] = useState(false);
   const [venuePhotoError, setVenuePhotoError] = useState("");
@@ -927,6 +935,9 @@ export default function App() {
       setProfileForm({ full_name: partnerVenue.full_name || "", phone: partnerVenue.phone || "" });
       setVenueTerms(partnerVenue.venues?.terms_and_conditions || "");
       setVenueGuestCapacity(partnerVenue.venues?.guest_capacity ?? "");
+      setAvailabilityMode(partnerVenue.venues?.availability_mode || "live");
+      if (partnerVenue.venues?.auto_open_time) setAutoOpenTime(partnerVenue.venues.auto_open_time.slice(0, 5));
+      if (partnerVenue.venues?.auto_close_time) setAutoCloseTime(partnerVenue.venues.auto_close_time.slice(0, 5));
     }
   }, [partnerVenue]);
 
@@ -1263,6 +1274,51 @@ export default function App() {
       setVenueGuestCapacityError(e.message);
     } finally {
       setVenueGuestCapacitySaving(false);
+    }
+  }
+
+  // Live/Paused switch instantly. Auto Set also switches instantly, using
+  // whichever open/close times are currently in the form (defaults the
+  // first time); the schedule can be adjusted afterward via saveAutoSchedule.
+  async function setAvailability(mode) {
+    setAvailabilityError("");
+    setAvailabilitySaving(true);
+    try {
+      const body = { availability_mode: mode };
+      if (mode === "auto") {
+        body.auto_open_time = autoOpenTime;
+        body.auto_close_time = autoCloseTime;
+      }
+      await sb(`/rest/v1/venues?id=eq.${partnerVenue.venue_id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body,
+      });
+      await refreshVenue();
+    } catch (e) {
+      setAvailabilityError(e.message || "Couldn't update availability. Please try again.");
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  }
+
+  async function saveAutoSchedule(e) {
+    e.preventDefault();
+    setAvailabilityError("");
+    setAvailabilitySaving(true);
+    try {
+      await sb(`/rest/v1/venues?id=eq.${partnerVenue.venue_id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { availability_mode: "auto", auto_open_time: autoOpenTime, auto_close_time: autoCloseTime },
+      });
+      await refreshVenue();
+    } catch (e) {
+      setAvailabilityError(e.message || "Couldn't save your schedule. Please try again.");
+    } finally {
+      setAvailabilitySaving(false);
     }
   }
 
@@ -2334,6 +2390,72 @@ export default function App() {
             : "You're all caught up — no requests waiting on you right now."}
         </p>
 
+        <div className="bg-white border border-stone-200 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-sm font-medium">Availability</p>
+              <p className="text-xs text-stone-500 mt-0.5">
+                {availabilityMode === "live" &&
+                  "Live — new requests start their response countdown right away."}
+                {availabilityMode === "paused" &&
+                  "Paused — requests are held with no countdown running until you go Live."}
+                {availabilityMode === "auto" &&
+                  `Auto Set — accepting requests ${autoOpenTime}–${autoCloseTime} daily. Held outside those hours.`}
+              </p>
+            </div>
+            <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
+              {[
+                { key: "live", label: "Go Live" },
+                { key: "paused", label: "Pause" },
+                { key: "auto", label: "Auto Set" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={availabilitySaving}
+                  onClick={() => setAvailability(key)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 ${
+                    availabilityMode === key ? "bg-white shadow-sm text-stone-900" : "text-stone-500"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {availabilityMode === "auto" && (
+            <form onSubmit={saveAutoSchedule} className="flex items-end gap-3 flex-wrap mt-4 pt-4 border-t border-stone-100">
+              <div>
+                <label className="text-xs font-medium block mb-1">Opens</label>
+                <input
+                  type="time"
+                  required
+                  className="border border-stone-300 rounded px-2 py-1.5 text-sm"
+                  value={autoOpenTime}
+                  onChange={(e) => setAutoOpenTime(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium block mb-1">Closes</label>
+                <input
+                  type="time"
+                  required
+                  className="border border-stone-300 rounded px-2 py-1.5 text-sm"
+                  value={autoCloseTime}
+                  onChange={(e) => setAutoCloseTime(e.target.value)}
+                />
+              </div>
+              <button
+                disabled={availabilitySaving}
+                className="bg-accent text-[#170D0B] text-xs font-medium rounded px-3 py-2 disabled:opacity-50"
+              >
+                {availabilitySaving ? "Saving…" : "Save schedule"}
+              </button>
+            </form>
+          )}
+          {availabilityError && <p className="text-rose-600 text-xs mt-2">{availabilityError}</p>}
+        </div>
+
         <div className="flex flex-wrap gap-4 mb-6">
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 flex-1 min-w-[200px]">
             <p className="text-xs text-amber-800">Awaiting your response</p>
@@ -2550,10 +2672,16 @@ export default function App() {
 
                 {b.status === "pending" && (
                   <>
-                    {mins !== null && (
+                    {mins !== null ? (
                       <p className={`text-xs mb-2 ${mins < 30 ? "text-rose-600" : "text-stone-400"}`}>
                         {mins > 0 ? `Respond within ${formatCountdown(mins)}` : "Response window passed — this request will be auto-cancelled"}
                       </p>
+                    ) : (
+                      b.response_remaining_seconds != null && (
+                        <p className="text-xs mb-2 text-amber-700">
+                          Timer paused — you're not currently accepting requests. Go Live (or wait for your Auto Set hours) to start it.
+                        </p>
+                      )
                     )}
                     {rejectingId === b.id ? (
                       <div className="flex flex-col gap-2">
@@ -4556,7 +4684,11 @@ export default function App() {
               <div className="border-t border-stone-100 pt-4">
                 <p className="text-sm font-medium mb-1">Common questions</p>
                 <ul className="text-sm text-stone-500 list-disc pl-4 flex flex-col gap-1">
-                  <li>How long do I have to respond to a request? 2 hours, after which it auto-rejects.</li>
+                  <li>
+                    How long do I have to respond to a request? 4 hours, 2 hours, or 30 minutes depending on how
+                    soon the event is — after which it auto-cancels (a strike, not a rejection). If you're Paused
+                    or outside your Auto Set hours, the clock doesn't run until you're accepting requests again.
+                  </li>
                   <li>When does my deposit share release? On OTP redemption at the event, not at payment.</li>
                   <li>What if a guest never shares their OTP? It's flagged "Unconfirmed" for PAXO review, not an automatic no-show.</li>
                 </ul>

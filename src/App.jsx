@@ -2430,7 +2430,18 @@ export default function App() {
         <div className="bg-white border border-stone-200 rounded-xl p-4 mb-6">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <p className="text-sm font-medium">Availability</p>
+              <p className="text-sm font-medium flex items-center gap-1.5">
+                Availability
+                <span
+                  className={`inline-block w-2 h-2 rounded-full ${
+                    availabilityMode === "live"
+                      ? "bg-green-500"
+                      : availabilityMode === "paused"
+                      ? "bg-red-500"
+                      : "bg-orange-500"
+                  }`}
+                />
+              </p>
               <p className="text-xs text-stone-500 mt-0.5">
                 {availabilityMode === "live" &&
                   "Live — new requests start their response countdown right away."}
@@ -2442,17 +2453,29 @@ export default function App() {
             </div>
             <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
               {[
-                { key: "live", label: "Go Live" },
-                { key: "paused", label: "Pause" },
-                { key: "auto", label: "Auto Set" },
-              ].map(({ key, label }) => (
+                {
+                  key: "live",
+                  label: "Go Live",
+                  activeClass: "bg-green-600 text-white shadow-sm",
+                },
+                {
+                  key: "paused",
+                  label: "Pause",
+                  activeClass: "bg-red-600 text-white shadow-sm",
+                },
+                {
+                  key: "auto",
+                  label: "Auto Set",
+                  activeClass: "bg-orange-500 text-white shadow-sm",
+                },
+              ].map(({ key, label, activeClass }) => (
                 <button
                   key={key}
                   type="button"
                   disabled={availabilitySaving}
                   onClick={() => setAvailability(key)}
                   className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 ${
-                    availabilityMode === key ? "bg-white shadow-sm text-stone-900" : "text-stone-500"
+                    availabilityMode === key ? activeClass : "text-stone-500 hover:text-stone-800"
                   }`}
                 >
                   {label}

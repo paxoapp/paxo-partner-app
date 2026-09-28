@@ -114,6 +114,36 @@ export async function deleteVenuePhoto(token, objectPath) {
   if (!res.ok) throw new Error("Couldn't delete photo");
 }
 
+const AVATARS_BUCKET = "avatars";
+
+// Upload a File to the public avatars bucket, shared with the customer app.
+// The storage RLS policy requires the first path segment to be the
+// uploader's own auth.uid(), so this always uses the signed-in user's id --
+// same ownership pattern as uploadVenuePhoto. Returns the object's public
+// URL directly (no signing needed -- the bucket is public).
+export async function uploadAvatar(token, userId, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const objectPath = `${userId}/avatar-${Date.now()}.${ext}`;
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${AVATARS_BUCKET}/${encodeURIComponent(objectPath).replace(/%2F/g, "/")}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(JSON.parse(t || "{}")?.message || "Upload failed");
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/${AVATARS_BUCKET}/${objectPath}`;
+}
+
 export async function signIn(email, password) {
   const data = await sb("/auth/v1/token?grant_type=password", {
     method: "POST",

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 import SocialLinks from "./SocialLinks";
-import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto } from "./supabase";
+import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar } from "./supabase";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
@@ -452,6 +452,8 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
 
   const [bankDetails, setBankDetails] = useState(null);
   const [bankForm, setBankForm] = useState({
@@ -1260,10 +1262,31 @@ export default function App() {
         body: { full_name: profileForm.full_name, phone: profileForm.phone },
       });
       setProfileSaved(true);
+      await refreshVenue();
     } catch (e) {
       setProfileError(e.message);
     } finally {
       setProfileLoading(false);
+    }
+  }
+
+  async function handleAvatarUpload(file) {
+    if (!file) return;
+    setAvatarError("");
+    setAvatarUploading(true);
+    try {
+      const url = await uploadAvatar(session.token, session.userId, file);
+      await sb(`/rest/v1/partner_users?id=eq.${session.userId}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { avatar_url: url },
+      });
+      await refreshVenue();
+    } catch (e) {
+      setAvatarError(e.message || "Couldn't upload photo. Please try again.");
+    } finally {
+      setAvatarUploading(false);
     }
   }
 
@@ -2347,7 +2370,8 @@ export default function App() {
     <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 sm:pb-0">
       <header className="bg-slate-900 text-white sticky top-0 z-30">
         <div className="max-w-4xl mx-auto px-5 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-baseline gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <img src="/paxo-icon.png" alt="" className="h-7 w-7 rounded-md" />
             <span className="font-display text-2xl tracking-tight">Paxo</span>
             <span className="text-xs text-accent">partner</span>
           </div>
@@ -2399,10 +2423,14 @@ export default function App() {
               )}
             </span>
             <button
-              className="w-8 h-8 rounded-full bg-accent text-[#170D0B] font-semibold flex items-center justify-center text-xs"
+              className="w-8 h-8 rounded-full bg-accent text-[#170D0B] font-semibold flex items-center justify-center text-xs overflow-hidden shrink-0"
               onClick={() => setMenuOpen((v) => !v)}
             >
-              {(session.email || "?").slice(0, 1).toUpperCase()}
+              {partnerVenue?.avatar_url ? (
+                <img src={partnerVenue.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (session.email || "?").slice(0, 1).toUpperCase()
+              )}
             </button>
             {menuOpen && (
               <>
@@ -4393,6 +4421,33 @@ export default function App() {
           <div className="max-w-lg">
             <h1 className="font-serif text-3xl mb-1">Profile</h1>
             <p className="text-stone-500 text-sm mb-6">Your contact details, shown to customers on accepted bookings.</p>
+            <div className="flex items-center gap-4 bg-white border border-stone-200 rounded-lg p-5 mb-4">
+              <div className="w-16 h-16 rounded-full bg-stone-100 border border-stone-200 overflow-hidden flex items-center justify-center text-xl font-semibold text-stone-500 shrink-0">
+                {partnerVenue?.avatar_url ? (
+                  <img src={partnerVenue.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (profileForm.full_name || session.email || "?").slice(0, 1).toUpperCase()
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Profile photo</p>
+                <label className="inline-block text-sm font-medium border border-stone-300 rounded px-3 py-1.5 cursor-pointer hover:bg-stone-50 transition-colors">
+                  {avatarUploading ? "Uploading…" : "Change photo"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={avatarUploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      handleAvatarUpload(f);
+                    }}
+                  />
+                </label>
+                {avatarError && <p className="text-rose-600 text-xs mt-1">{avatarError}</p>}
+              </div>
+            </div>
             <form onSubmit={saveProfile} className="flex flex-col gap-4 bg-white border border-stone-200 rounded-lg p-5">
               <div>
                 <label className="text-sm font-medium block mb-1">Full name</label>

@@ -362,7 +362,13 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  const [screen, setScreen] = useState("auth");
+  // Start on a neutral loading screen (not "auth") when the URL shows we're
+  // landing back from a Google redirect -- otherwise the login form paints
+  // for a frame before the redirect-handling effect below finishes its async
+  // work and switches to the real destination, which reads as a glitch/blink.
+  const [screen, setScreen] = useState(() =>
+    typeof window !== "undefined" && window.location.hash.includes("access_token") ? "authRedirect" : "auth"
+  );
   const [session, setSession] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -1111,6 +1117,7 @@ export default function App() {
         setScreen(venueRow ? "dashboard" : "submitVenue");
       } catch (e) {
         setAuthError(e.message);
+        setScreen("auth");
       }
     })();
   }, [loadPartnerVenue]);
@@ -1932,6 +1939,14 @@ export default function App() {
     } finally {
       setAddonReviewBusy(null);
     }
+  }
+
+  if (screen === "authRedirect") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+      </div>
+    );
   }
 
   if (screen === "auth") {

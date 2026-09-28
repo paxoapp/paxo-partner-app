@@ -290,6 +290,28 @@ function VenueStatePill({ state }) {
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{label}</span>;
 }
 
+// Read-only view of the partner's own Availability setting (Live / Paused /
+// Auto Set) -- the thing that actually controls whether a customer's request
+// can be sent at all. Distinct from VenueStatePill above, which is admin's
+// own moderation toggle (Active/On Hold/Deactivated). A venue can be "Active"
+// here and still be refusing every request because the partner has it
+// Paused, or it's outside their Auto Set hours -- this is how admin sees why.
+function AvailabilityPill({ mode, openTime, closeTime }) {
+  const cls =
+    mode === "paused"
+      ? "bg-red-100 text-red-800"
+      : mode === "auto"
+      ? "bg-orange-100 text-orange-800"
+      : "bg-green-100 text-green-800";
+  const label =
+    mode === "paused"
+      ? "Paused"
+      : mode === "auto"
+      ? `Auto Set${openTime && closeTime ? ` (${openTime.slice(0, 5)}–${closeTime.slice(0, 5)})` : ""}`
+      : "Live";
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${cls}`}>{label}</span>;
+}
+
 function VenueDetail({ session, venue, onBack, onUpdated }) {
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1582,6 +1604,7 @@ function PartnersAdmin({ session }) {
                 <th className="text-left px-4 py-2">Venue</th>
                 <th className="text-left px-4 py-2 hidden sm:table-cell">City</th>
                 <th className="text-left px-4 py-2">Live status</th>
+                <th className="text-left px-4 py-2">Availability</th>
                 <th className="text-left px-4 py-2 hidden md:table-cell">Bookings</th>
               </tr>
             </thead>
@@ -1599,6 +1622,13 @@ function PartnersAdmin({ session }) {
                     <td className="px-4 py-2.5 text-slate-600 hidden sm:table-cell">{v.city}</td>
                     <td className="px-4 py-2.5">
                       <VenueStatePill state={v.venue_state || "active"} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <AvailabilityPill
+                        mode={v.availability_mode || "live"}
+                        openTime={v.auto_open_time}
+                        closeTime={v.auto_close_time}
+                      />
                     </td>
                     <td className="px-4 py-2.5 text-slate-600 hidden md:table-cell">
                       {total} total
@@ -1700,7 +1730,14 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
           <h2 className="text-2xl font-semibold">{venue.name}</h2>
           <p className="text-slate-500 text-sm">{venue.venue_type} · {venue.city}</p>
         </div>
-        <VenueStatePill state={venue.venue_state || "active"} />
+        <div className="flex flex-col items-end gap-1.5">
+          <VenueStatePill state={venue.venue_state || "active"} />
+          <AvailabilityPill
+            mode={venue.availability_mode || "live"}
+            openTime={venue.auto_open_time}
+            closeTime={venue.auto_close_time}
+          />
+        </div>
       </div>
 
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}

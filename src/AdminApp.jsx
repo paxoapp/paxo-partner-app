@@ -279,6 +279,39 @@ function StateReasonForm({ title, reasons, confirmLabel, tone, onConfirm, onCanc
   );
 }
 
+// Optional-expiry confirm form for featuring a package. Unlike StateReasonForm
+// (used for holds), there's no reason to collect — featuring is a promotion,
+// not a moderation action — just an optional "until" date so a promo doesn't
+// stay live forever by accident.
+function FeatureForm({ title, onConfirm, onCancel, busy }) {
+  const [until, setUntil] = useState("");
+  return (
+    <div className="border rounded-lg p-4 flex flex-col gap-3 mt-3 border-amber-200 bg-amber-50">
+      <p className="text-sm font-medium text-amber-800">{title}</p>
+      <label className="text-xs text-slate-600 flex flex-col gap-1">
+        Feature until (optional — leave blank to stay featured until removed)
+        <input
+          type="date"
+          className="border border-slate-300 rounded px-3 py-2 text-sm"
+          value={until}
+          min={new Date().toISOString().slice(0, 10)}
+          onChange={(e) => setUntil(e.target.value)}
+        />
+      </label>
+      <div className="flex gap-2">
+        <button
+          disabled={busy}
+          onClick={() => onConfirm(until ? new Date(`${until}T23:59:59`).toISOString() : null)}
+          className="bg-amber-600 text-white text-sm font-medium rounded px-4 py-2 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "★ Confirm feature"}
+        </button>
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function VenueStatePill({ state }) {
   const cls =
     state === "deactivated"
@@ -1656,6 +1689,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
   const [packageError, setPackageError] = useState("");
   const [holdingPackageId, setHoldingPackageId] = useState(null);
   const [packageHoldBusyId, setPackageHoldBusyId] = useState(null);
+  const [featuringPackageId, setFeaturingPackageId] = useState(null);
+  const [packageFeatureBusyId, setPackageFeatureBusyId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1717,6 +1752,35 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       setPackageError(e.message);
     } finally {
       setPackageHoldBusyId(null);
+    }
+  }
+
+  // "Featured" is Option C from the offers discussion: a pure visibility
+  // promotion (badge + better placement in the customer app). It never
+  // touches price, discount, or partner payout — settlement math is
+  // unaffected either way. featured_until is optional; leave it unset and
+  // the package stays featured until an admin turns it off manually.
+  async function setPackageFeatured(pkg, featured, until) {
+    setPackageError("");
+    setPackageFeatureBusyId(pkg.id);
+    try {
+      const [row] = await sb(`/rest/v1/venue_packages?id=eq.${pkg.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=representation",
+        body: {
+          is_featured: featured,
+          featured_until: featured ? until || null : null,
+          featured_at: featured ? nowIso() : null,
+          featured_by: featured ? session.userId : null,
+        },
+      });
+      setFeaturingPackageId(null);
+      setPackages((rows) => rows.map((r) => (r.id === row.id ? row : r)));
+    } catch (e) {
+      setPackageError(e.message);
+    } finally {
+      setPackageFeatureBusyId(null);
     }
   }
 
@@ -1848,23 +1912,52 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
                           On hold
                         </span>
                       )}
+                      {p.is_featured && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                          ★ Featured
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-slate-500">{inr(p.price_per_head)} / head</p>
                     {p.admin_hold && (
                       <p className="text-xs text-rose-600 mt-1">Reason: {p.admin_hold_reason || "—"}</p>
                     )}
+                    {p.is_featured && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        Featured{p.featured_until ? ` until ${fmtDate(p.featured_until)}` : " (no end date set)"}
+                      </p>
+                    )}
                   </div>
-                  {holdingPackageId !== p.id && (
-                    <button
-                      disabled={packageHoldBusyId === p.id}
-                      onClick={() => (p.admin_hold ? setPackageHold(p, false, null) : setHoldingPackageId(p.id))}
-                      className={`text-xs font-medium shrink-0 disabled:opacity-50 ${
-                        p.admin_hold ? "text-emerald-700" : "text-rose-600"
-                      }`}
-                    >
-                      {p.admin_hold ? (packageHoldBusyId === p.id ? "Releasing…" : "Release hold") : "Put on hold"}
-                    </button>
-                  )}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    {holdingPackageId !== p.id && (
+                      <button
+                        disabled={packageHoldBusyId === p.id}
+                        onClick={() => (p.admin_hold ? setPackageHold(p, false, null) : setHoldingPackageId(p.id))}
+                        className={`text-xs font-medium disabled:opacity-50 ${
+                          p.admin_hold ? "text-emerald-700" : "text-rose-600"
+                        }`}
+                      >
+                        {p.admin_hold ? (packageHoldBusyId === p.id ? "Releasing…" : "Release hold") : "Put on hold"}
+                      </button>
+                    )}
+                    {featuringPackageId !== p.id && (
+                      <button
+                        disabled={packageFeatureBusyId === p.id}
+                        onClick={() =>
+                          p.is_featured ? setPackageFeatured(p, false, null) : setFeaturingPackageId(p.id)
+                        }
+                        className={`text-xs font-medium disabled:opacity-50 ${
+                          p.is_featured ? "text-slate-500" : "text-amber-700"
+                        }`}
+                      >
+                        {p.is_featured
+                          ? packageFeatureBusyId === p.id
+                            ? "Removing…"
+                            : "Remove feature"
+                          : "★ Feature this package"}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {holdingPackageId === p.id && (
                   <StateReasonForm
@@ -1875,6 +1968,14 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
                     busy={packageHoldBusyId === p.id}
                     onConfirm={(text) => setPackageHold(p, true, text)}
                     onCancel={() => setHoldingPackageId(null)}
+                  />
+                )}
+                {featuringPackageId === p.id && (
+                  <FeatureForm
+                    title={`Feature "${p.name}" — no price change, just better placement for customers`}
+                    busy={packageFeatureBusyId === p.id}
+                    onConfirm={(until) => setPackageFeatured(p, true, until)}
+                    onCancel={() => setFeaturingPackageId(null)}
                   />
                 )}
               </div>
@@ -2231,6 +2332,108 @@ function CustomerDetail({ session, customer, bookingStats, onBack, onUpdated }) 
 // Admin-owned master catalog of add-on types (Mic, Photographer, ...) that
 // partners pick from. Partner-side custom-item requests are frozen for MVP —
 // this catalog is the only source of add-ons a partner can offer.
+// Single cross-venue view of every currently-featured package. Featuring
+// itself happens from a venue's own detail page (Partners → venue →
+// Packages), same as admin_hold does — this screen exists only so a featured
+// package doesn't get forgotten once it's live, since there's no other place
+// to see them all at once.
+function FeaturedAdmin({ session }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await sb(
+        "/rest/v1/venue_packages?select=id,name,price_per_head,featured_at,featured_until,venues(name,city)" +
+          "&is_featured=eq.true&order=featured_at.desc",
+        { token: session.token }
+      );
+      setRows(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function unfeature(row) {
+    setBusyId(row.id);
+    setError("");
+    try {
+      await sb(`/rest/v1/venue_packages?id=eq.${row.id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { is_featured: false, featured_until: null, featured_at: null, featured_by: null },
+      });
+      setRows((rs) => rs.filter((r) => r.id !== row.id));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const now = Date.now();
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-1">Featured packages</h1>
+      <p className="text-sm text-slate-500 mb-6">
+        Every package currently promoted to customers — badge + better placement, no price or payout change.
+        To feature a new package, open it from Partners → the venue → Packages.
+      </p>
+
+      {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-slate-400 text-sm">Nothing is featured right now.</p>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100">
+          {rows.map((r) => {
+            const expired = r.featured_until && new Date(r.featured_until).getTime() < now;
+            return (
+              <div key={r.id} className="p-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-sm">
+                    {r.name} <span className="text-slate-400 font-normal">— {r.venues?.name}</span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {r.venues?.city} · {inr(r.price_per_head)}/head · Featured since {fmtDate(r.featured_at)}
+                    {r.featured_until && (
+                      <span className={expired ? "text-rose-600 font-medium" : ""}>
+                        {" "}
+                        · {expired ? "expired" : "until"} {fmtDate(r.featured_until)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  disabled={busyId === r.id}
+                  onClick={() => unfeature(r)}
+                  className="text-xs font-medium text-slate-500 hover:text-rose-600 disabled:opacity-50 shrink-0"
+                >
+                  {busyId === r.id ? "Removing…" : "Remove feature"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddonsAdmin({ session }) {
   const [catalog, setCatalog] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -2915,6 +3118,7 @@ export default function AdminApp() {
             ["partners", "Partners"],
             ["customers", "Customers"],
             ["requests", "Requests"],
+            ["featured", "Featured"],
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
           ].map(([key, label]) => (
@@ -2953,6 +3157,8 @@ export default function AdminApp() {
           <CustomersAdmin session={session} />
         ) : section === "requests" ? (
           <Requests session={session} />
+        ) : section === "featured" ? (
+          <FeaturedAdmin session={session} />
         ) : section === "addons" ? (
           <AddonsAdmin session={session} />
         ) : section === "settlements" ? (

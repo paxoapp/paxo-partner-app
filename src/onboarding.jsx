@@ -503,22 +503,55 @@ export function VenueStatusScreen({ session, venue, onChanged, onLogout }) {
           </div>
         )}
 
-        {status === "rejected" && !resubmitting && (
-          <div className="border border-rose-900/60 bg-rose-950/30 rounded-2xl p-5 flex flex-col gap-3">
-            <div>
-              <p className="text-rose-300 font-medium text-sm mb-1">Your submission was not approved</p>
-              <p className="text-sm text-stone-200 whitespace-pre-wrap">
-                {venue.rejection_note || "No reason was provided. Please contact support."}
-              </p>
+        {status === "rejected" && !resubmitting && (() => {
+          // Status stays "rejected" after a resubmission by design (only an
+          // admin can move it forward), so the DB never tells us "this was
+          // just resubmitted." What does tell us: updated_at gets bumped by
+          // every edit, while reviewed_at is only set the moment an admin
+          // actually rejects/approves — so once a partner edits and resubmits,
+          // updated_at moves past reviewed_at and stays there until the admin
+          // reviews again. That's the signal we use to swap the stale
+          // rejection card for an honest "resubmitted" confirmation.
+          const justResubmitted =
+            venue.updated_at && venue.reviewed_at && new Date(venue.updated_at) > new Date(venue.reviewed_at);
+
+          if (justResubmitted) {
+            return (
+              <div className="border border-amber-900/60 bg-amber-950/30 rounded-2xl p-5 flex flex-col gap-3">
+                <div>
+                  <p className="text-amber-300 font-medium text-sm mb-1">Resubmitted — awaiting re-review</p>
+                  <p className="text-sm text-stone-200">
+                    We've received your updated details. Our team will look again — you'll be notified
+                    once there's a decision.
+                  </p>
+                </div>
+                <details className="text-xs text-stone-400">
+                  <summary className="cursor-pointer text-stone-300">Previous rejection reason</summary>
+                  <p className="whitespace-pre-wrap mt-1">
+                    {venue.rejection_note || "No reason was provided."}
+                  </p>
+                </details>
+              </div>
+            );
+          }
+
+          return (
+            <div className="border border-rose-900/60 bg-rose-950/30 rounded-2xl p-5 flex flex-col gap-3">
+              <div>
+                <p className="text-rose-300 font-medium text-sm mb-1">Your submission was not approved</p>
+                <p className="text-sm text-stone-200 whitespace-pre-wrap">
+                  {venue.rejection_note || "No reason was provided. Please contact support."}
+                </p>
+              </div>
+              <button
+                onClick={() => setResubmitting(true)}
+                className="self-start bg-accent text-[#170D0B] rounded-full px-4 py-2 text-sm font-semibold"
+              >
+                Edit details & resubmit
+              </button>
             </div>
-            <button
-              onClick={() => setResubmitting(true)}
-              className="self-start bg-accent text-[#170D0B] rounded-full px-4 py-2 text-sm font-semibold"
-            >
-              Edit details & resubmit
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {resubmitting && (
           <div className="border border-stone-800 bg-stone-900/60 rounded-2xl p-5">

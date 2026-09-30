@@ -350,6 +350,107 @@ function ShadowModeBanner({ venue, checklist }) {
   );
 }
 
+// Partner Help & support — grouped, expand-on-tap Q&A. Content mirrors the
+// published Booking, Payment, Cancellation & Partner Policy (v3) so this
+// never states a number that disagrees with the PDF partners signed.
+const PARTNER_FAQ_SECTIONS = [
+  {
+    title: "How PAXO works",
+    items: [
+      {
+        q: "What actually happens when a customer books?",
+        a: "A customer picks one of your packages and sends a booking request. You get up to 4 hours (Standard), 2 hours (Secure), or 30 minutes (Instant) to accept or reject it, depending on how soon their event is. Once you accept, the customer pays their deposit through PAXO and the booking is confirmed — the rest of the bill is settled directly with you at the venue.",
+      },
+      {
+        q: "Why do some bookings have a bigger deposit than others?",
+        a: "It's based on how far away the event is when the request comes in, not the guest count. 7+ days out is a Standard Booking (20% deposit). Within a week but more than 48 hours out is Secure (50%). Under 48 hours is Instant (50%, and non-refundable). This is fixed once at the moment the customer submits — it never changes later.",
+      },
+    ],
+  },
+  {
+    title: "Responding to requests",
+    items: [
+      {
+        q: "What if I miss the response window?",
+        a: "It auto-cancels and counts as a strike, not a rejection — there's a difference. Three strikes in a row puts your venue on hold until PAXO's admin team lifts it, so it's worth keeping notifications on during your response windows.",
+      },
+      {
+        q: "Does the clock run while I'm Paused or outside my Auto Set hours?",
+        a: "No — the response window only starts counting once you're actually accepting requests again.",
+      },
+    ],
+  },
+  {
+    title: "Payments & payout",
+    items: [
+      {
+        q: "How much does PAXO take?",
+        a: "A tiered platform fee on the deposit only, never on the full booking value: 5% up to ₹1,00,000, 7% from ₹1,00,000–2,00,000, 10% above ₹2,00,000. The remaining balance the customer pays you directly at the venue isn't touched by PAXO at all.",
+      },
+      {
+        q: "When do I actually get paid?",
+        a: "Your payout releases once the guest checks in with their OTP at the event — not when they pay the deposit. Settlement to your account is processed within 3 working days of that check-in.",
+      },
+      {
+        q: "A guest never shared their OTP — what happens?",
+        a: "It's flagged \"Unconfirmed\" for PAXO to review, not treated as an automatic no-show.",
+      },
+    ],
+  },
+  {
+    title: "Cancellations & refunds",
+    items: [
+      {
+        q: "A customer cancelled — do I still get paid?",
+        a: "Depends on the refund slab their Booking Type falls into. Standard: full refund if cancelled >72h before the event, 50% kept if 48–72h, nothing refunded under 48h. Secure: full refund >96h, 50% kept 72–96h, nothing under 72h. Instant bookings are never refundable. Whatever isn't refunded to the customer is split between PAXO's fee and your payout, same as a normal booking.",
+      },
+      {
+        q: "Can I cancel a confirmed booking myself?",
+        a: "Yes, from the booking's detail view — this is treated as venue-initiated and follows a different path from a customer cancellation. Use it sparingly; repeated venue-side cancellations affect how PAXO evaluates your listing.",
+      },
+    ],
+  },
+];
+
+function FaqAccordion({ sections }) {
+  const [openId, setOpenId] = useState(null);
+  return (
+    <div className="flex flex-col gap-6">
+      {sections.map((section) => (
+        <div key={section.title}>
+          <p className="text-sm font-semibold text-stone-700 mb-2">{section.title}</p>
+          <div className="border border-stone-200 rounded-lg divide-y divide-stone-100 overflow-hidden">
+            {section.items.map((item) => {
+              const id = `${section.title}::${item.q}`;
+              const isOpen = openId === id;
+              return (
+                <div key={id}>
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenId(isOpen ? null : id)}
+                    className="w-full flex items-start justify-between gap-3 text-left px-4 py-3 bg-white hover:bg-stone-50"
+                  >
+                    <span className="text-sm font-medium text-stone-800">{item.q}</span>
+                    <span className="text-stone-400 text-sm leading-5 shrink-0" aria-hidden="true">
+                      {isOpen ? "−" : "+"}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="px-4 pb-4 bg-white">
+                      <p className="text-sm text-stone-500 leading-relaxed">{item.a}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   // Forces a re-render every 30s so minutesLeft()-driven countdowns (partner
   // response window, etc.) tick down live instead of freezing until an
@@ -4834,26 +4935,13 @@ export default function App() {
           <div className="max-w-lg">
             <h1 className="font-serif text-3xl mb-1">Help & support</h1>
             <p className="text-stone-500 text-sm mb-6">We're here if something doesn't look right.</p>
-            <div className="bg-white border border-stone-200 rounded-lg p-5 flex flex-col gap-4">
-              <div>
-                <p className="text-sm font-medium">Email us</p>
-                <a href="mailto:support@mypaxo.in" className="text-sm text-stone-500 underline">
-                  support@mypaxo.in
-                </a>
-              </div>
-              <div className="border-t border-stone-100 pt-4">
-                <p className="text-sm font-medium mb-1">Common questions</p>
-                <ul className="text-sm text-stone-500 list-disc pl-4 flex flex-col gap-1">
-                  <li>
-                    How long do I have to respond to a request? 4 hours, 2 hours, or 30 minutes depending on how
-                    soon the event is — after which it auto-cancels (a strike, not a rejection). If you're Paused
-                    or outside your Auto Set hours, the clock doesn't run until you're accepting requests again.
-                  </li>
-                  <li>When does my deposit share release? On OTP redemption at the event, not at payment.</li>
-                  <li>What if a guest never shares their OTP? It's flagged "Unconfirmed" for PAXO review, not an automatic no-show.</li>
-                </ul>
-              </div>
+            <div className="bg-white border border-stone-200 rounded-lg p-5 mb-6">
+              <p className="text-sm font-medium">Email us</p>
+              <a href="mailto:support@mypaxo.in" className="text-sm text-stone-500 underline">
+                support@mypaxo.in
+              </a>
             </div>
+            <FaqAccordion sections={PARTNER_FAQ_SECTIONS} />
           </div>
         )}
       </main>

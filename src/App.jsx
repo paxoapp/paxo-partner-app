@@ -43,6 +43,31 @@ const statusColor = {
 // picking its own ad-hoc colors.
 const statusBadgeClass = (status) => statusColor[status] || "bg-stone-100 text-stone-600";
 
+// venue_packages.gst_mode has 4 valid values (DB check constraint), but only
+// "included"/"excluded" are partner-editable here — "non_gst" and
+// "pending_verification" are set by PAXO once a venue's GST status is
+// confirmed, so the edit form shows them read-only instead of letting a
+// partner overwrite one by accident while editing something unrelated.
+const GST_MODE_LABEL = {
+  included: "GST included in price",
+  excluded: "GST excluded from price",
+  non_gst: "Non-GST (exempt)",
+  pending_verification: "GST — pending PAXO verification",
+};
+const GST_MODE_BADGE_CLASS = {
+  included: "bg-stone-100 text-stone-500",
+  excluded: "bg-stone-100 text-stone-500",
+  non_gst: "bg-sky-50 text-sky-700",
+  pending_verification: "bg-amber-50 text-amber-700",
+};
+const GST_MODE_PARTNER_EDITABLE = new Set(["included", "excluded"]);
+const GST_MODE_SHORT_LABEL = {
+  included: "GST included",
+  excluded: "GST excluded",
+  non_gst: "Non-GST",
+  pending_verification: "GST pending",
+};
+
 // A pending request "conflicts" when the venue already has a committed
 // (accepted / confirmed) booking on the same calendar date. Same-date is the
 // trigger by design — we don't check time-range overlap, and we don't block
@@ -1728,7 +1753,10 @@ export default function App() {
       max_headcount: pkg.max_headcount ?? "",
       inclusions: (pkg.inclusions || []).join("\n"),
       includes_alcohol: pkg.includes_alcohol ?? true,
-      gst_mode: pkg.gst_mode === "excluded" ? "excluded" : "included",
+      // Preserve whatever GST mode the package actually has — including the
+      // PAXO-managed "non_gst"/"pending_verification" states — instead of
+      // collapsing anything that isn't "excluded" down to "included".
+      gst_mode: pkg.gst_mode || "included",
       includes_dj: pkg.includes_dj ?? false,
       dj_notes: pkg.dj_notes || "",
       discount_percent: pkg.discount_percent ?? 0,
@@ -1804,7 +1832,10 @@ export default function App() {
           .map((s) => s.trim())
           .filter(Boolean),
         includes_alcohol: !!packageForm.includes_alcohol,
-        gst_mode: packageForm.gst_mode === "excluded" ? "excluded" : "included",
+        // Write back whatever's in the form state as-is — it was loaded
+        // preserving the real value above, and the form UI only lets a
+        // partner change it when it's one of the two partner-editable modes.
+        gst_mode: packageForm.gst_mode || "included",
         includes_dj: !!packageForm.includes_dj,
         dj_notes: (packageForm.dj_notes || "").trim() || null,
         discount_percent: parseInt(packageForm.discount_percent, 10) || 0,
@@ -3846,48 +3877,63 @@ export default function App() {
 
                 <div>
                   <label className="text-sm font-medium block mb-1">GST</label>
-                  <div className="flex gap-2">
-                    {[
-                      ["included", "Included in price"],
-                      ["excluded", "Excluded from price"],
-                    ].map(([val, lbl]) => (
-                      <button
-                        type="button"
-                        key={val}
-                        className={`text-sm px-3 py-1.5 rounded border ${
-                          packageForm.gst_mode === val
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "border-stone-300 text-stone-600"
-                        }`}
-                        onClick={() => setPackageForm({ ...packageForm, gst_mode: val })}
-                      >
-                        {lbl}
-                      </button>
-                    ))}
-                  </div>
-                  {(() => {
-                    const price = parseFloat(packageForm.price_per_head);
-                    if (!price || price <= 0) return null;
-                    const rate = packageForm.includes_alcohol ? 0.18 : 0.05;
-                    const pct = Math.round(rate * 100);
-                    if (packageForm.gst_mode === "excluded") {
-                      return (
-                        <p className="text-xs text-stone-500 mt-1.5">
-                          Customers see ₹{price.toLocaleString("en-IN")}/head + GST as applicable.
-                          The amount they pay is unchanged.
-                        </p>
-                      );
-                    }
-                    const base = Math.round((price / (1 + rate)) * 100) / 100;
-                    const gst = Math.round((price - base) * 100) / 100;
-                    return (
-                      <p className="text-xs text-stone-500 mt-1.5">
-                        Customers see ₹{base.toLocaleString("en-IN")} base + ₹
-                        {gst.toLocaleString("en-IN")} GST ({pct}%) = ₹
-                        {price.toLocaleString("en-IN")}/head.
+                  {GST_MODE_PARTNER_EDITABLE.has(packageForm.gst_mode) ? (
+                    <>
+                      <div className="flex gap-2">
+                        {[
+                          ["included", "Included in price"],
+                          ["excluded", "Excluded from price"],
+                        ].map(([val, lbl]) => (
+                          <button
+                            type="button"
+                            key={val}
+                            className={`text-sm px-3 py-1.5 rounded border ${
+                              packageForm.gst_mode === val
+                                ? "bg-slate-900 text-white border-slate-900"
+                                : "border-stone-300 text-stone-600"
+                            }`}
+                            onClick={() => setPackageForm({ ...packageForm, gst_mode: val })}
+                          >
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                      {(() => {
+                        const price = parseFloat(packageForm.price_per_head);
+                        if (!price || price <= 0) return null;
+                        const rate = packageForm.includes_alcohol ? 0.18 : 0.05;
+                        const pct = Math.round(rate * 100);
+                        if (packageForm.gst_mode === "excluded") {
+                          return (
+                            <p className="text-xs text-stone-500 mt-1.5">
+                              Customers see ₹{price.toLocaleString("en-IN")}/head + GST as applicable.
+                              The amount they pay is unchanged.
+                            </p>
+                          );
+                        }
+                        const base = Math.round((price / (1 + rate)) * 100) / 100;
+                        const gst = Math.round((price - base) * 100) / 100;
+                        return (
+                          <p className="text-xs text-stone-500 mt-1.5">
+                            Customers see ₹{base.toLocaleString("en-IN")} base + ₹
+                            {gst.toLocaleString("en-IN")} GST ({pct}%) = ₹
+                            {price.toLocaleString("en-IN")}/head.
+                          </p>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <div
+                      className={`text-sm px-3 py-2 rounded border border-stone-200 ${
+                        GST_MODE_BADGE_CLASS[packageForm.gst_mode] || "bg-stone-100 text-stone-500"
+                      }`}
+                    >
+                      {GST_MODE_LABEL[packageForm.gst_mode] || packageForm.gst_mode}
+                      <p className="text-xs opacity-80 mt-0.5">
+                        Set by PAXO based on your venue's GST verification — contact support to change it.
                       </p>
-                    );
-                  })()}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -4289,6 +4335,13 @@ export default function App() {
                           }`}
                         >
                           {p.includes_dj ? "DJ included" : "No DJ"}
+                        </span>
+                        <span
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                            GST_MODE_BADGE_CLASS[p.gst_mode] || "bg-stone-100 text-stone-500"
+                          }`}
+                        >
+                          {GST_MODE_SHORT_LABEL[p.gst_mode] || "GST included"}
                         </span>
                         {!!p.discount_percent && (
                           <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">

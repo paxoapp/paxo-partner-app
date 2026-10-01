@@ -322,17 +322,17 @@ function DocumentsForm({ session, venue, onSubmitted }) {
   const [declared, setDeclared] = useState(false);
 
   const hasGstDoc = !!venue.gst_document_url;
-  const gstCheck = validateGstinFormat(gstNo);
+  // Format/checksum validation (validateGstinFormat, still defined below in
+  // this file) is disabled for now per founder request, 1 Oct -- real partner
+  // onboarding starts today and it was blocking submission on this field.
+  // Re-enable by restoring the gstCheck.valid checks removed here and in the
+  // JSX below, and in the admin badge in AdminApp.jsx (search validateGstinFormat).
 
   async function submit(e) {
     e.preventDefault();
     setError("");
     if (!gstNo.trim()) {
       setError("GST number is required.");
-      return;
-    }
-    if (!gstCheck.valid) {
-      setError(gstCheck.reason || "Please enter a valid GSTIN.");
       return;
     }
     if (!hasGstDoc && !gstFile) {
@@ -383,12 +383,6 @@ function DocumentsForm({ session, venue, onSubmitted }) {
           placeholder="e.g. 07ABCDE1234F1Z5"
           maxLength={15}
         />
-        {gstNo.trim() && !gstCheck.valid && (
-          <p className="text-rose-400 text-xs mt-1">{gstCheck.reason}</p>
-        )}
-        {gstNo.trim() && gstCheck.valid && (
-          <p className="text-emerald-400 text-xs mt-1">Format looks valid.</p>
-        )}
       </Field>
       <Field label={`GST document ${hasGstDoc ? "(uploaded — choose a file to replace)" : "*"}`}>
         <input type="file" className={fileCls} accept="image/*,application/pdf" onChange={(e) => setGstFile(e.target.files[0] || null)} />
@@ -412,7 +406,7 @@ function DocumentsForm({ session, venue, onSubmitted }) {
 
       {error && <p className="text-rose-400 text-sm">{error}</p>}
       <button
-        disabled={saving || !declared || !gstCheck.valid}
+        disabled={saving || !declared}
         className="bg-accent text-[#170D0B] rounded-full px-5 py-3 text-sm font-semibold disabled:opacity-50 mt-1 self-start"
       >
         {saving ? "Uploading…" : "Submit documents"}

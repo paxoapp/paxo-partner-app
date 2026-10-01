@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
 import SocialLinks from "./SocialLinks";
-import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar } from "./supabase";
+import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
+
+const PARTNER_SESSION_KEY = "paxo_partner_session";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 
@@ -489,12 +491,23 @@ export default function App() {
   }, []);
 
   // Start on a neutral loading screen (not "auth") when the URL shows we're
-  // landing back from a Google redirect -- otherwise the login form paints
-  // for a frame before the redirect-handling effect below finishes its async
-  // work and switches to the real destination, which reads as a glitch/blink.
-  const [screen, setScreen] = useState(() =>
-    typeof window !== "undefined" && window.location.hash.includes("access_token") ? "authRedirect" : "auth"
-  );
+  // landing back from a Google redirect, or when a previously-saved session
+  // exists in localStorage -- otherwise the login form paints for a frame
+  // before the redirect/restore effects below finish their async work and
+  // switch to the real destination, which reads as a glitch/blink.
+  //
+  // Bug fix: session used to live only in React state (useState(null)), with
+  // nothing persisted anywhere -- a page refresh re-mounted the app with no
+  // way to know a session existed, so it always fell back to the login
+  // screen even with a perfectly valid, unexpired token. The bootstrap
+  // effect below (and saveSession calls at every place session gets set)
+  // fix that; this just avoids the login-screen flash while it runs.
+  const [screen, setScreen] = useState(() => {
+    if (typeof window === "undefined") return "auth";
+    if (window.location.hash.includes("access_token")) return "authRedirect";
+    if (loadSession(PARTNER_SESSION_KEY)) return "authRedirect";
+    return "auth";
+  });
   const [session, setSession] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -1169,11 +1182,37 @@ export default function App() {
   const enterSession = useCallback(
     async (token, user) => {
       const venueRow = await loadPartnerVenue(token, user.id);
-      setSession({ token, userId: user.id, email: user.email });
+      const s = { token, userId: user.id, email: user.email };
+      setSession(s);
+      saveSession(PARTNER_SESSION_KEY, s);
       setScreen(venueRow ? "dashboard" : "submitVenue");
     },
     [loadPartnerVenue]
   );
+
+  // Restore a session saved by a previous visit, so a page refresh doesn't
+  // drop the partner back to the login screen. Skipped when the URL is
+  // itself a Google-redirect landing (the effect below handles that case and
+  // will overwrite whatever's stored with the fresher token anyway).
+  useEffect(() => {
+    if (window.location.hash.includes("access_token")) return;
+    const stored = loadSession(PARTNER_SESSION_KEY);
+    if (!stored) return;
+    (async () => {
+      try {
+        const user = await sb("/auth/v1/user", { token: stored.token });
+        const venueRow = await loadPartnerVenue(stored.token, user.id);
+        setSession(stored);
+        setScreen(venueRow ? "dashboard" : "submitVenue");
+      } catch {
+        // Stored token expired/invalid -- drop it and fall back to login.
+        clearSession(PARTNER_SESSION_KEY);
+        setScreen("auth");
+      }
+    })();
+    // Intentionally run once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleAuth(e) {
     e.preventDefault();
@@ -1219,6 +1258,7 @@ export default function App() {
     setBookings([]);
     setMenuOpen(false);
     setScreen("auth");
+    clearSession(PARTNER_SESSION_KEY);
   }
 
   // Handle the redirect back from Google. Distinguish a password-recovery link
@@ -1239,7 +1279,9 @@ export default function App() {
     (async () => {
       try {
         const user = await sb("/auth/v1/user", { token });
-        setSession({ token, userId: user.id, email: user.email });
+        const s = { token, userId: user.id, email: user.email };
+        setSession(s);
+        saveSession(PARTNER_SESSION_KEY, s);
         const venueRow = await loadPartnerVenue(token, user.id);
         window.history.replaceState(null, "", window.location.pathname);
         setScreen(venueRow ? "dashboard" : "submitVenue");
@@ -1337,7 +1379,9 @@ export default function App() {
         token: verifyData.access_token,
         body: { password: resetNewPassword },
       });
-      setSession({ token: verifyData.access_token, userId: verifyData.user.id, email: verifyData.user.email });
+      const s = { token: verifyData.access_token, userId: verifyData.user.id, email: verifyData.user.email };
+      setSession(s);
+      saveSession(PARTNER_SESSION_KEY, s);
       const venueRow = await loadPartnerVenue(verifyData.access_token, verifyData.user.id);
       setScreen(venueRow ? "dashboard" : "submitVenue");
     } catch (e) {
@@ -1365,7 +1409,9 @@ export default function App() {
         token: recoveryToken,
         body: { password: newPassword },
       });
-      setSession({ token: recoveryToken, userId: user.id, email: user.email });
+      const s = { token: recoveryToken, userId: user.id, email: user.email };
+      setSession(s);
+      saveSession(PARTNER_SESSION_KEY, s);
       const venueRow = await loadPartnerVenue(recoveryToken, user.id);
       setScreen(venueRow ? "dashboard" : "submitVenue");
     } catch (e) {

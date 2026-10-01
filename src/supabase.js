@@ -152,6 +152,46 @@ export async function signIn(email, password) {
   return { token: data.access_token, userId: data.user.id, email: data.user.email };
 }
 
+// Session persistence, used by both the partner app and the admin console so
+// a page refresh doesn't drop the signed-in user back to the login screen.
+// Bug: session was only ever held in React state (useState(null)), never
+// written anywhere durable -- a refresh re-mounts the app with no way to know
+// a session existed. This is a thin localStorage wrapper, keyed separately
+// per app so a browser profile that's logged into both partner.mypaxo.in and
+// admin.mypaxo.in (different origins anyway, but keeping this explicit) never
+// cross-wires them.
+//
+// Note: the stored access_token still expires (Supabase's default password-
+// grant token lifetime, currently ~1 hour) -- this fixes "logged out on
+// refresh", not "logged out after sitting idle for an hour". There's no
+// refresh_token handling anywhere in this app yet; that's a separate, larger
+// fix (storing + exchanging the refresh_token) worth doing next.
+export function saveSession(key, session) {
+  try {
+    localStorage.setItem(key, JSON.stringify(session));
+  } catch {
+    // Storage unavailable (private browsing, quota, etc.) -- session just
+    // won't survive a refresh; nothing else breaks.
+  }
+}
+
+export function loadSession(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
 // Returns the admin_users row for this user id, or null if they are not an admin.
 export async function fetchAdminRow(token, userId) {
   const rows = await sb(`/rest/v1/admin_users?id=eq.${userId}&select=*`, { token });

@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { sb, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY } from "./supabase";
+import { sb, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY, saveSession, loadSession, clearSession } from "./supabase";
+
+// Separate localStorage key from the partner app's, even though they're
+// different origins anyway -- keeps intent obvious if that ever changes.
+const ADMIN_SESSION_KEY = "paxo_admin_session";
 import { REJECTION_REASONS, VENUE_STATUS_LABELS, validateGstinFormat } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
@@ -2979,6 +2983,36 @@ export default function AdminApp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  // True only while we're trying to restore a session from localStorage on
+  // first load -- keeps the login form from flashing before that check
+  // resolves. Bug fix: previously session lived only in React state, so any
+  // refresh dropped straight back to the login screen even for a valid,
+  // unexpired token.
+  const [bootstrapping, setBootstrapping] = useState(true);
+
+  useEffect(() => {
+    const stored = loadSession(ADMIN_SESSION_KEY);
+    if (!stored) {
+      setBootstrapping(false);
+      return;
+    }
+    (async () => {
+      try {
+        const row = await fetchAdminRow(stored.token, stored.userId);
+        if (!row) {
+          clearSession(ADMIN_SESSION_KEY);
+          return;
+        }
+        setSession(stored);
+        setAdmin(row);
+      } catch {
+        // Stored token expired/invalid -- drop it and fall through to login.
+        clearSession(ADMIN_SESSION_KEY);
+      } finally {
+        setBootstrapping(false);
+      }
+    })();
+  }, []);
 
   const [section, setSection] = useState("dashboard"); // 'dashboard' | 'onboarding' | 'partners' | 'customers' | 'requests' | 'addons' | 'settlements'
   const [venues, setVenues] = useState([]);
@@ -3023,6 +3057,7 @@ export default function AdminApp() {
       }
       setSession(s);
       setAdmin(row);
+      saveSession(ADMIN_SESSION_KEY, s);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -3036,6 +3071,15 @@ export default function AdminApp() {
     setSelectedId(null);
     setEmail("");
     setPassword("");
+    clearSession(ADMIN_SESSION_KEY);
+  }
+
+  if (bootstrapping) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+      </div>
+    );
   }
 
   if (!session || !admin) {

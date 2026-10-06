@@ -7,7 +7,8 @@ const PARTNER_SESSION_KEY = "paxo_partner_session";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
-import { findTaxRate, validatePackageTax, alcoholAmountToSave } from "./tax";
+import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
+import BookingMoneyPanel, { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
 
@@ -1000,7 +1001,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),payments(payment_type,status,amount,paid_at,platform_fee_amount,partner_payout_amount,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,booking_commissions(kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -2581,7 +2582,7 @@ export default function App() {
   const settlementBookings = bookings.filter(
     (b) =>
       ["accepted", "confirmed", "completed"].includes(b.status) ||
-      (b.status === "cancelled" && Number(primaryPayment(b)?.partner_payout_amount || 0) > 0)
+      (b.status === "cancelled" && paidOnlineAmount(b) > 0)
   );
   const pendingSettlementTotal = bookings
     .filter((b) => b.status === "accepted")
@@ -2916,12 +2917,22 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-wrap gap-4 text-xs text-stone-500 mb-3">
-                  <span>Estimated Package Value {inr(b.total_amount)}</span>
+                  {b.package_value != null ? (
+                    <>
+                      <span>Package value (before taxes) {formatRupees(b.package_value)}</span>
+                      {Number(b.tax_amount) > 0 && <span>Booking total {formatRupees(b.total_amount)}</span>}
+                    </>
+                  ) : (
+                    <span>Estimated Package Value {inr(b.total_amount)}</span>
+                  )}
                   <span>
-                    Deposit due {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
+                    Deposit due {formatRupees(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"})
                   </span>
                   {b.deposit_tier !== "full" && (
-                    <span>Remaining {inr(Number(b.total_amount || 0) - Number(b.deposit_amount || 0))} (collected by you at the venue)</span>
+                    <span>
+                      To collect at the venue{" "}
+                      {formatRupees(Math.max(0, round2(Number(b.total_amount || 0) - Number(b.deposit_amount || 0))))}
+                    </span>
                   )}
                 </div>
 
@@ -3671,7 +3682,6 @@ export default function App() {
             <div className="flex flex-col gap-3">
               {settlementBookings.map((b) => {
                 const payment = primaryPayment(b);
-                const payoutAmount = payment?.partner_payout_amount;
                 const isSettled = payment?.settlement_status === "settled";
                 const checkedIn = Boolean(b.event_started_at);
                 let badgeLabel, badgeClass;
@@ -3682,13 +3692,13 @@ export default function App() {
                   badgeLabel = "Settled";
                   badgeClass = "bg-emerald-100 text-emerald-800";
                 } else if (b.status === "cancelled") {
-                  badgeLabel = "Payout pending (booking cancelled)";
+                  badgeLabel = "Deposit pending (booking cancelled)";
                   badgeClass = "bg-rose-100 text-rose-800";
                 } else if (checkedIn) {
-                  badgeLabel = "Checked in — payout pending";
+                  badgeLabel = "Checked in — deposit pending";
                   badgeClass = "bg-sky-100 text-sky-800";
                 } else {
-                  badgeLabel = "Deposit paid — payout after check-in";
+                  badgeLabel = "Deposit paid — passed to you after check-in";
                   badgeClass = "bg-sky-100 text-sky-800";
                 }
                 // The one number that matters most for scanning this list at a glance:
@@ -3706,11 +3716,11 @@ export default function App() {
                       <p className="font-medium">{b.venue_packages?.name}</p>
                       <p className="text-sm text-stone-500">{b.event_date}</p>
                       <p className="text-xs text-stone-400 mt-1">
-                        {payoutAmount != null ? (
-                          <>Your payout {inr(payoutAmount)}</>
+                        {hasPaidDeposit(b) ? (
+                          <>Paid online {formatRupees(paidOnlineAmount(b))}</>
                         ) : (
                           <>
-                            Deposit {inr(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"}) — payout shown once paid
+                            Deposit {formatRupees(b.deposit_amount)} ({b.deposit_tier === "full" ? "full payment" : b.deposit_tier === "50pct" ? "50%" : "20%"}) — awaiting payment
                           </>
                         )}
                       </p>
@@ -3726,7 +3736,7 @@ export default function App() {
                 );
               })}
               {!bookingsLoading && settlementBookings.length === 0 && (
-                <p className="text-stone-400 text-sm">No accepted, confirmed, cancelled-with-payout, or completed bookings yet.</p>
+                <p className="text-stone-400 text-sm">No accepted, confirmed, cancelled (with a deposit kept), or completed bookings yet.</p>
               )}
             </div>
           </div>
@@ -3790,65 +3800,7 @@ export default function App() {
                   </div>
                 </dl>
 
-                <div className="border-t border-stone-200 pt-3 mb-3">
-                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Payment</p>
-                  <dl className="text-sm flex flex-col gap-1.5">
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Booking total</dt>
-                      <dd className="font-medium">{inr(b.total_amount)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">
-                        {b.deposit_tier === "full" ? "Paid (full)" : `Deposit (${b.deposit_tier === "50pct" ? "50%" : "20%"})`}
-                      </dt>
-                      <dd className="font-medium">{inr(payment?.amount ?? b.deposit_amount)}</dd>
-                    </div>
-                    {addonTotal > 0 && (
-                      <div className="flex justify-between">
-                        <dt className="text-stone-500">Confirmed add-ons</dt>
-                        <dd className="font-medium">{inr(addonTotal)}</dd>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Payment status</dt>
-                      <dd className="font-medium capitalize">{payment?.status || "pending"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Paid at</dt>
-                      <dd className="font-medium">{fmt(payment?.paid_at)}</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div className="border-t border-stone-200 pt-3 mb-3">
-                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Your payout</p>
-                  <dl className="text-sm flex flex-col gap-1.5">
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Platform fee</dt>
-                      <dd className="font-medium">
-                        {payment?.platform_fee_amount != null ? `− ${inr(payment.platform_fee_amount)}` : "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Payout amount</dt>
-                      <dd className="font-medium">
-                        {payment?.partner_payout_amount != null ? inr(payment.partner_payout_amount) : "Shown once paid"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-stone-500">Settlement</dt>
-                      <dd className="font-medium">
-                        {payment?.settlement_status === "settled" ? `Settled ${fmt(payment.settled_at)}` : "Pending"}
-                      </dd>
-                    </div>
-                    {payment?.settlement_notes && (
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-stone-500 shrink-0">Notes</dt>
-                        <dd className="font-medium text-right">{payment.settlement_notes}</dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
+                <BookingMoneyPanel b={b} payment={payment} addonTotal={addonTotal} />
 
                 {(payment?.refund_status && payment.refund_status !== "none") && (
                   <div className="border-t border-stone-200 pt-3 mb-3">

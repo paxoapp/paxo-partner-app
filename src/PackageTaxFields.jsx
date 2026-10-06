@@ -70,16 +70,12 @@ export default function PackageTaxFields({ form, setForm, rate, rateStatus }) {
     );
   }
 
-  // Existing (pre-"taxes extra" rework) preview for the includes-taxes mode.
+  // Preview for the includes-taxes mode: the price is shown as-is, no split.
   let includedPreview = null;
   if (!taxesExtra && validPrice) {
-    const r = form.includes_alcohol ? 0.18 : 0.05;
-    const base = Math.round((price / (1 + r)) * 100) / 100;
-    const gst = Math.round((price - base) * 100) / 100;
     includedPreview = (
       <p className="text-xs text-stone-500 mt-1.5">
-        Customers see ₹{base.toLocaleString("en-IN")} base + ₹{gst.toLocaleString("en-IN")} GST (
-        {Math.round(r * 100)}%) = ₹{price.toLocaleString("en-IN")}/head.
+        Customers will see {formatRupees(price)} per person. All taxes included.
       </p>
     );
   }

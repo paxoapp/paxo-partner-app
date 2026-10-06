@@ -9,7 +9,8 @@ import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
 import PartnerFees from "./platformFees";
-import BookingMoneyPanel, { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
+import BookingPage, { CompletedList } from "./bookingPage";
+import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
 
@@ -547,7 +548,6 @@ export default function App() {
   const [addonBusyId, setAddonBusyId] = useState(null);
   const [menuExpanded, setMenuExpanded] = useState({}); // { [bookingId]: true } — Finalized menu open; collapsed by default
   const [detailBookingId, setDetailBookingId] = useState(null); // booking id shown in the detail view
-  const [paymentDetailId, setPaymentDetailId] = useState(null); // booking id shown in the Payments transaction detail view
 
   const [claimVenuePending, setClaimVenuePending] = useState(""); // used on the post-Google "claim venue" screen
 
@@ -1002,7 +1002,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,booking_commissions(kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -2872,7 +2872,7 @@ export default function App() {
                       {b.venue_packages?.name} · {b.headcount} guests
                     </p>
                     <p className="text-sm text-stone-600">{b.event_date} at {b.event_time}</p>
-                    <p className="text-xs text-stone-400 font-mono mt-1.5">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()}</p>
+                    <button type="button" onClick={() => setDetailBookingId(b.id)} className="text-xs text-accent-ink font-mono mt-1.5 hover:underline">Booking ID: {b.booking_ref || b.id.slice(0, 8).toUpperCase()} · View booking</button>
                   </div>
                   <span className={`text-xs font-medium px-2 py-1 rounded shrink-0 capitalize ${statusBadgeClass(b.status)}`}>
                     {b.status.replace("_", " ")}
@@ -3201,7 +3201,7 @@ export default function App() {
             <p className="text-stone-500 text-sm mb-6">Your upcoming events for {partnerVenue?.venues?.name}.</p>
 
             <div className="flex gap-2 mb-4">
-              {["upcoming", "cancelled"].map((t) => (
+              {["upcoming", "completed", "cancelled"].map((t) => (
                 <button
                   key={t}
                   className={`text-sm px-3 py-1.5 rounded-full border capitalize ${
@@ -3223,8 +3223,11 @@ export default function App() {
             />
 
             {actionError && <p className="text-rose-600 text-sm mb-3">{actionError}</p>}
+            {upcomingTab === "completed" && (
+              <CompletedList bookings={bookings.filter((b) => bookingMatchesSearch(b, upcomingSearch))} onOpen={setDetailBookingId} />
+            )}
             <div className="flex flex-col gap-3">
-              {bookings
+              {upcomingTab !== "completed" && bookings
                 .filter(isUpcoming)
                 .filter((b) => (upcomingTab === "cancelled" ? b.status === "cancelled" : b.status !== "cancelled"))
                 .filter((b) => bookingMatchesSearch(b, upcomingSearch)).length === 0 && (
@@ -3232,11 +3235,11 @@ export default function App() {
                   No {upcomingTab} bookings{upcomingSearch.trim() ? " match that Booking ID" : ""}.
                 </p>
               )}
-              {bookings
+              {upcomingTab !== "completed" && bookings
                 .filter(isUpcoming)
                 .filter((b) => (upcomingTab === "cancelled" ? b.status === "cancelled" : b.status !== "cancelled"))
                 .filter((b) => bookingMatchesSearch(b, upcomingSearch))
-                .sort((a, b) => new Date(a.event_date) - new Date(b.event_date))
+                .sort((a, b) => new Date(`${a.event_date}T${a.event_time}`) - new Date(`${b.event_date}T${b.event_time}`))
                 .map((b) => {
                   const eventPassed = new Date(`${b.event_date}T${b.event_time}`).getTime() < Date.now();
                   const confirmed = b.status === "confirmed";
@@ -3396,56 +3399,24 @@ export default function App() {
           const b = bookings.find((x) => x.id === detailBookingId);
           if (!b) return null;
           return (
-            <div
-              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Booking details"
-              onClick={() => setDetailBookingId(null)}
-            >
-              <div
-                className="bg-white rounded-xl max-w-md w-full p-5 shadow-xl max-h-[85vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <h2 className="font-serif text-xl">Booking details</h2>
-                  <button
-                    type="button"
-                    onClick={() => setDetailBookingId(null)}
-                    className="text-stone-400 hover:text-stone-600 text-sm"
-                  >
-                    Close
-                  </button>
-                </div>
-                <p className="text-xs text-stone-400 font-mono mb-4">
-                  {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
-                </p>
-
-                <dl className="text-sm flex flex-col gap-2 mb-4">
-                  <div>
-                    <dt className="text-stone-400 text-xs">Customer Name</dt>
-                    <dd className="text-stone-800 font-medium">{b.contact_name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-stone-400 text-xs">Event Date</dt>
-                    <dd className="text-stone-800 font-medium">{b.event_date}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-stone-400 text-xs">Event Slot</dt>
-                    <dd className="text-stone-800 font-medium">{b.event_time}</dd>
-                  </div>
-                </dl>
-
-                <div className="border-t border-stone-200 pt-3 mb-3">
-                  <p className="text-sm font-semibold text-stone-500 mb-1.5">Finalized menu</p>
-                  <FinalizedMenuBody booking={b} categories={categories} />
-                </div>
-
-                <div className="border-t border-stone-200 pt-3">
-                  <p className="text-sm text-stone-700">{bookingStatusLine(b)}</p>
-                </div>
-              </div>
-            </div>
+            <BookingPage
+              b={b}
+              token={session.token}
+              menuNode={<FinalizedMenuBody booking={b} categories={categories} />}
+              checkin={{
+                value: checkinInput[b.id] || "",
+                onChange: (v) => setCheckinInput((m) => ({ ...m, [b.id]: v.replace(/D/g, "") })),
+                error: checkinError[b.id],
+                busy: checkinBusyId === b.id,
+                onConfirm: () => confirmEventStarted(b),
+              }}
+              onClose={() => setDetailBookingId(null)}
+              onChanged={() => loadBookings(session.token, partnerVenue.venue_id)}
+              onGoToFees={() => {
+                setDetailBookingId(null);
+                setScreen("fees");
+              }}
+            />
           );
         })()}
 
@@ -3715,7 +3686,7 @@ export default function App() {
                   <button
                     type="button"
                     key={b.id}
-                    onClick={() => setPaymentDetailId(b.id)}
+                    onClick={() => setDetailBookingId(b.id)}
                     className="text-left border border-stone-200 rounded-xl p-5 bg-white flex items-center justify-between gap-4 hover:border-stone-300 hover:shadow-sm transition-shadow w-full"
                   >
                     <div>
@@ -3749,101 +3720,6 @@ export default function App() {
           </div>
         )}
 
-        {paymentDetailId && (() => {
-          const b = bookings.find((x) => x.id === paymentDetailId);
-          if (!b) return null;
-          const payment = primaryPayment(b);
-          const addonTotal = (b.booking_addon_requests || [])
-            .filter((a) => a.status === "confirmed" && a.price != null)
-            .reduce((sum, a) => sum + Number(a.price || 0), 0);
-          const fmt = (ts) =>
-            ts
-              ? new Date(ts).toLocaleString("en-IN", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })
-              : "—";
-          return (
-            <div
-              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Transaction details"
-              onClick={() => setPaymentDetailId(null)}
-            >
-              <div
-                className="bg-white rounded-xl max-w-md w-full p-5 shadow-xl max-h-[85vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <h2 className="font-serif text-xl">Transaction details</h2>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentDetailId(null)}
-                    className="text-stone-400 hover:text-stone-600 text-sm"
-                  >
-                    Close
-                  </button>
-                </div>
-                <p className="text-xs text-stone-400 font-mono mb-4">
-                  {b.booking_ref || `Booking ${b.id.slice(0, 8).toUpperCase()}`}
-                </p>
-
-                <dl className="text-sm flex flex-col gap-2 mb-4">
-                  <div className="flex justify-between">
-                    <dt className="text-stone-500">Package</dt>
-                    <dd className="font-medium">{b.venue_packages?.name || "—"}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-stone-500">Event date</dt>
-                    <dd className="font-medium">{b.event_date} {b.event_time}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-stone-500">Headcount</dt>
-                    <dd className="font-medium">{b.headcount ?? "—"}</dd>
-                  </div>
-                </dl>
-
-                <BookingMoneyPanel b={b} payment={payment} addonTotal={addonTotal} />
-
-                {(payment?.refund_status && payment.refund_status !== "none") && (
-                  <div className="border-t border-stone-200 pt-3 mb-3">
-                    <p className="text-sm font-semibold text-stone-500 mb-1.5">Refund</p>
-                    <dl className="text-sm flex flex-col gap-1.5">
-                      <div className="flex justify-between">
-                        <dt className="text-stone-500">Refund status</dt>
-                        <dd className="font-medium capitalize">{payment.refund_status}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-stone-500">Refund amount</dt>
-                        <dd className="font-medium">
-                          {inr(payment.refund_amount)}{payment.refund_percent != null ? ` (${payment.refund_percent}%)` : ""}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-stone-500">Refunded at</dt>
-                        <dd className="font-medium">{fmt(payment.refunded_at)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                )}
-
-                {b.status === "cancelled" && (
-                  <div className="border-t border-stone-200 pt-3">
-                    <p className="text-sm font-semibold text-stone-500 mb-1.5">Cancellation</p>
-                    <p className="text-sm text-stone-700">
-                      Cancelled by {b.cancelled_by || "—"} on {fmt(b.cancelled_at)}
-                      {b.cancellation_reason ? ` — ${b.cancellation_reason}` : ""}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
 
         {screen === "fees" && session && partnerVenue?.venue_id && (
           <PartnerFees token={session.token} venueId={partnerVenue.venue_id} />

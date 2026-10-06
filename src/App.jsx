@@ -6,6 +6,8 @@ import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, sav
 const PARTNER_SESSION_KEY = "paxo_partner_session";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
+import PackageTaxFields from "./PackageTaxFields";
+import { findTaxRate, validatePackageTax, alcoholAmountToSave } from "./tax";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
 
@@ -636,6 +638,9 @@ export default function App() {
   const [packageForm, setPackageForm] = useState(null);
   const [packageError, setPackageError] = useState("");
   const [packageSaving, setPackageSaving] = useState(false);
+  // tax_rates rows (publicly readable), looked up by the venue's city.
+  const [taxRates, setTaxRates] = useState([]);
+  const [taxRatesStatus, setTaxRatesStatus] = useState("loading"); // loading | ready | error
   // Per-category collapse state for the quota rows below — { [category_kind]: true } once
   // a partner has finished configuring that quota and closes it to reduce clutter.
   const [collapsedQuotaRows, setCollapsedQuotaRows] = useState({});
@@ -1017,6 +1022,18 @@ export default function App() {
     }
   }, []);
 
+  const loadTaxRates = useCallback(async (token) => {
+    setTaxRatesStatus("loading");
+    try {
+      const data = await sb("/rest/v1/tax_rates?select=*", { token });
+      setTaxRates(data || []);
+      setTaxRatesStatus("ready");
+    } catch (e) {
+      console.error(e);
+      setTaxRatesStatus("error");
+    }
+  }, []);
+
   const loadPackages = useCallback(async (token, venueId) => {
     setPackagesLoading(true);
     try {
@@ -1149,10 +1166,11 @@ export default function App() {
       loadPackages(session.token, partnerVenue.venue_id);
       loadAddons(session.token, partnerVenue.venue_id);
       loadCatalog(session.token);
+      loadTaxRates(session.token);
       // Menu items back the package builder's brand-pool pickers.
       loadMenu(session.token, partnerVenue.venue_id);
     }
-  }, [screen, session, partnerVenue, loadPackages, loadAddons, loadCatalog, loadMenu]);
+  }, [screen, session, partnerVenue, loadPackages, loadAddons, loadCatalog, loadTaxRates, loadMenu]);
 
   useEffect(() => {
     if (screen === "profile" && session && partnerVenue?.venue_id) {
@@ -1765,6 +1783,7 @@ export default function App() {
       inclusions: "",
       includes_alcohol: true,
       gst_mode: "included",
+      alcohol_amount_per_head: "",
       includes_dj: false,
       dj_notes: "",
       discount_percent: 0,
@@ -1803,6 +1822,9 @@ export default function App() {
       // PAXO-managed "non_gst"/"pending_verification" states — instead of
       // collapsing anything that isn't "excluded" down to "included".
       gst_mode: pkg.gst_mode || "included",
+      // 0 means "not entered yet" — existing taxes-extra packages start at 0
+      // and are deliberately not auto-filled, so the partner must enter it.
+      alcohol_amount_per_head: Number(pkg.alcohol_amount_per_head) > 0 ? pkg.alcohol_amount_per_head : "",
       includes_dj: pkg.includes_dj ?? false,
       dj_notes: pkg.dj_notes || "",
       discount_percent: pkg.discount_percent ?? 0,
@@ -1839,6 +1861,22 @@ export default function App() {
     if ((packageForm.dj_notes || "").length > 250) {
       setPackageError("DJ details are limited to 250 characters — please shorten them.");
       return;
+    }
+    const taxEditable = GST_MODE_PARTNER_EDITABLE.has(packageForm.gst_mode);
+    const taxRate = findTaxRate(taxRates, partnerVenue?.venues?.city);
+    if (taxEditable) {
+      const taxError = validatePackageTax({
+        gst_mode: packageForm.gst_mode,
+        includes_alcohol: packageForm.includes_alcohol,
+        alcohol_amount_per_head: packageForm.alcohol_amount_per_head,
+        price,
+        rate: taxRate,
+        rateStatus: taxRatesStatus,
+      });
+      if (taxError) {
+        setPackageError(taxError);
+        return;
+      }
     }
 
     // Brand-pool categories: the quota can't promise more choice than exists.
@@ -1886,6 +1924,16 @@ export default function App() {
         dj_notes: (packageForm.dj_notes || "").trim() || null,
         discount_percent: parseInt(packageForm.discount_percent, 10) || 0,
       };
+      // PAXO-managed modes (non_gst / pending_verification) leave this column
+      // untouched; the two partner-editable modes always write it (0 unless
+      // taxes are extra and the package includes alcohol).
+      if (taxEditable) {
+        body.alcohol_amount_per_head = alcoholAmountToSave({
+          gst_mode: packageForm.gst_mode,
+          includes_alcohol: packageForm.includes_alcohol,
+          alcohol_amount_per_head: packageForm.alcohol_amount_per_head,
+        });
+      }
 
       let packageId = editingPackageId;
       if (editingPackageId) {
@@ -3921,54 +3969,16 @@ export default function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium block mb-1">GST</label>
-                  {GST_MODE_PARTNER_EDITABLE.has(packageForm.gst_mode) ? (
-                    <>
-                      <div className="flex gap-2">
-                        {[
-                          ["included", "Included in price"],
-                          ["excluded", "Excluded from price"],
-                        ].map(([val, lbl]) => (
-                          <button
-                            type="button"
-                            key={val}
-                            className={`text-sm px-3 py-1.5 rounded border ${
-                              packageForm.gst_mode === val
-                                ? "bg-slate-900 text-white border-slate-900"
-                                : "border-stone-300 text-stone-600"
-                            }`}
-                            onClick={() => setPackageForm({ ...packageForm, gst_mode: val })}
-                          >
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
-                      {(() => {
-                        const price = parseFloat(packageForm.price_per_head);
-                        if (!price || price <= 0) return null;
-                        const rate = packageForm.includes_alcohol ? 0.18 : 0.05;
-                        const pct = Math.round(rate * 100);
-                        if (packageForm.gst_mode === "excluded") {
-                          return (
-                            <p className="text-xs text-stone-500 mt-1.5">
-                              Customers see ₹{price.toLocaleString("en-IN")}/head + GST as applicable.
-                              The amount they pay is unchanged.
-                            </p>
-                          );
-                        }
-                        const base = Math.round((price / (1 + rate)) * 100) / 100;
-                        const gst = Math.round((price - base) * 100) / 100;
-                        return (
-                          <p className="text-xs text-stone-500 mt-1.5">
-                            Customers see ₹{base.toLocaleString("en-IN")} base + ₹
-                            {gst.toLocaleString("en-IN")} GST ({pct}%) = ₹
-                            {price.toLocaleString("en-IN")}/head.
-                          </p>
-                        );
-                      })()}
-                    </>
-                  ) : (
+                {GST_MODE_PARTNER_EDITABLE.has(packageForm.gst_mode) ? (
+                  <PackageTaxFields
+                    form={packageForm}
+                    setForm={setPackageForm}
+                    rate={findTaxRate(taxRates, partnerVenue?.venues?.city)}
+                    rateStatus={taxRatesStatus}
+                  />
+                ) : (
+                  <div>
+                    <label className="text-sm font-medium block mb-1">GST</label>
                     <div
                       className={`text-sm px-3 py-2 rounded border border-stone-200 ${
                         GST_MODE_BADGE_CLASS[packageForm.gst_mode] || "bg-stone-100 text-stone-500"
@@ -3979,8 +3989,8 @@ export default function App() {
                         Set by PAXO based on your venue's GST verification — contact support to change it.
                       </p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -4037,7 +4047,14 @@ export default function App() {
                             ? "bg-slate-900 text-white border-slate-900"
                             : "border-stone-300 text-stone-600"
                         }`}
-                        onClick={() => setPackageForm({ ...packageForm, includes_alcohol: val })}
+                        onClick={() =>
+                          setPackageForm({
+                            ...packageForm,
+                            includes_alcohol: val,
+                            // No alcohol → no alcohol amount.
+                            alcohol_amount_per_head: val ? packageForm.alcohol_amount_per_head : "",
+                          })
+                        }
                       >
                         {lbl}
                       </button>

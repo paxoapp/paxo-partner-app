@@ -149,7 +149,7 @@ export function RecordBalanceForm({ expected, onSubmit }) {
       <div>
         <label className="text-xs text-stone-500 block mb-1">Customer's 6-digit code</label>
         <input inputMode="numeric" maxLength={6} placeholder="6-digit code" className={inputCls} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-        <p className="text-xs text-stone-500 mt-1">The customer gets this code in their app under “Pay at the venue”. It works for about a minute.</p>
+        <p className="text-xs text-stone-500 mt-1">The customer gets this code in their app under “Pay at the venue”. It works for about 10 minutes.</p>
       </div>
       <div>
         <label className="text-xs text-stone-500 block mb-1">Note (optional)</label>

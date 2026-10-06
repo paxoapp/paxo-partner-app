@@ -7,6 +7,7 @@ const ADMIN_SESSION_KEY = "paxo_admin_session";
 import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
+import PlatformFeesAdmin from "./adminPlatformFees";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -3134,6 +3135,7 @@ export default function AdminApp() {
             ["featured", "Featured"],
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
+            ["platformFees", "Platform fees"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -3176,6 +3178,8 @@ export default function AdminApp() {
           <AddonsAdmin session={session} />
         ) : section === "settlements" ? (
           <Settlements session={session} />
+        ) : section === "platformFees" ? (
+          <PlatformFeesAdmin session={session} />
         ) : selected ? (
           <VenueDetail
             session={session}

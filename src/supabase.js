@@ -197,3 +197,57 @@ export async function fetchAdminRow(token, userId) {
   const rows = await sb(`/rest/v1/admin_users?id=eq.${userId}&select=*`, { token });
   return rows[0] || null;
 }
+
+// ---- PAXO platform fee payments ----
+const FEE_PROOFS_BUCKET = "platform-fee-proofs";
+
+// Call a Postgres function (RPC) as the signed-in user. Errors carry the
+// function's own message (e.g. "TDS cannot be more than 20% of the fee").
+export async function rpc(token, fn, args) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(data?.message || "Something went wrong");
+  return data;
+}
+
+// Upload a payment proof (image or PDF) to the private platform-fee-proofs
+// bucket. The first path segment must be the venue id (storage RLS). No upsert:
+// a submitted proof can never be replaced.
+export async function uploadFeeProof(token, venueId, feeId, file) {
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const objectPath = `${venueId}/${feeId}-${Date.now()}.${ext}`;
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${FEE_PROOFS_BUCKET}/${encodeURIComponent(objectPath).replace(/%2F/g, "/")}`,
+    {
+      method: "POST",
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(JSON.parse(t || "{}")?.message || "Upload failed");
+  }
+  return objectPath;
+}
+
+// Short-lived link to open a stored proof (partner of that venue, or admin).
+export async function signedFeeProofUrl(token, objectPath, expiresIn = 600) {
+  if (!objectPath) return null;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${FEE_PROOFS_BUCKET}/${objectPath}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(JSON.parse(t || "{}")?.message || "Could not open the proof");
+  }
+  const data = await res.json();
+  return `${SUPABASE_URL}/storage/v1${data.signedURL}`;
+}

@@ -2,7 +2,7 @@ import { formatPercent, formatRupees, round2 } from "./tax";
 
 // Booking money for the partner's "Transaction details" popup: what the booking
 // costs, what the customer paid online, what the venue collects on the day, and
-// PAXO's commission with its status. Partner-only — never shown to customers.
+// PAXO's platform fee with its status. Partner-only — never shown to customers.
 
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
@@ -36,7 +36,7 @@ export function paidOnlineAmount(booking) {
 export const hasPaidDeposit = (booking) =>
   (booking?.payments || []).some((p) => p.status === "paid" && isDepositLike(p));
 
-// PAXO's commission row for this booking (from booking_commissions), or null for
+// PAXO's platform fee row for this booking (from booking_commissions), or null for
 // bookings made before commissions existed. Always the saved values — never
 // computed in the app.
 export function commissionOf(booking) {
@@ -48,13 +48,13 @@ export function commissionOf(booking) {
 function commissionStatusText(c) {
   switch (c.status) {
     case "pending":
-      return "Fixed. Charged after the event";
+      return "Fixed. Payable after the event";
     case "due":
-      return `Due. Will be debited${c.due_at ? ` (${fmtDate(c.due_at)})` : ""}`;
+      return `Due now${c.due_at ? ` (since ${fmtDate(c.due_at)})` : ""}. Pay it from the PAXO fees page`;
     case "debited":
-      return `Debited${c.debited_at ? ` on ${fmtDate(c.debited_at)}` : ""}`;
+      return `Paid${c.debited_at ? ` on ${fmtDate(c.debited_at)}` : ""}`;
     case "failed":
-      return `Debit failed${c.failure_reason ? `: ${c.failure_reason}` : ""}`;
+      return `Payment problem${c.failure_reason ? `: ${c.failure_reason}` : ""}`;
     case "cancelled":
       return "Not charged (booking cancelled)";
     default:
@@ -71,7 +71,7 @@ const Row = ({ k, v, strong }) => (
 
 export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
   const paid = hasPaidDeposit(b);
-  // Bookings made before taxes/commission were stored keep today's layout.
+  // Bookings made before package values and platform fees were stored keep today's layout.
   const detailed = paid && b.package_value != null;
   const commission = detailed ? commissionOf(b) : null;
   const paidOnline = paidOnlineAmount(b);
@@ -84,7 +84,7 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
         <dl className="text-sm flex flex-col gap-1.5">
           {detailed ? (
             <>
-              <Row k="Package value (before taxes)" v={formatRupees(b.package_value)} />
+              <Row k="Package value" v={formatRupees(b.package_value)} />
               {Number(b.tax_amount) > 0 && (
                 <Row k="Taxes (the venue bills these)" v={formatRupees(b.tax_amount)} />
               )}
@@ -122,11 +122,11 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
 
       {commission && (
         <div className="border border-stone-200 bg-stone-50 rounded-lg p-3 mb-3" data-testid="commission-box">
-          <p className="text-sm font-semibold text-stone-500 mb-1.5">PAXO commission</p>
+          <p className="text-sm font-semibold text-stone-500 mb-1.5">PAXO platform fee</p>
           <dl className="text-sm flex flex-col gap-1.5">
-            <Row k="Commission base" v={formatRupees(commission.base_amount)} />
-            <Row k="Rate" v={`${formatPercent(commission.percent)}%`} />
-            <Row k="Commission" v={formatRupees(commission.amount)} strong />
+            <Row k="Booking value" v={formatRupees(commission.base_amount)} />
+            <Row k="Fee rate" v={`${formatPercent(commission.percent)}%`} />
+            <Row k="Platform fee" v={formatRupees(commission.amount)} strong />
             <Row k="Status" v={commissionStatusText(commission)} />
           </dl>
         </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet } from "lucide-react";
+import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet, IndianRupee } from "lucide-react";
 import SocialLinks from "./SocialLinks";
 import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
 
@@ -8,6 +8,7 @@ import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "
 import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
+import PartnerFees from "./platformFees";
 import BookingMoneyPanel, { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
@@ -2629,6 +2630,12 @@ export default function App() {
                 Payments
               </button>
               <button
+                className={`hover:text-accent ${screen === "fees" ? "text-accent" : "text-slate-300"}`}
+                onClick={() => setScreen("fees")}
+              >
+                PAXO fees
+              </button>
+              <button
                 className={`hover:text-accent ${screen === "packages" ? "text-accent" : "text-slate-300"}`}
                 onClick={() => setScreen("packages")}
               >
@@ -2919,7 +2926,7 @@ export default function App() {
                 <div className="flex flex-wrap gap-4 text-xs text-stone-500 mb-3">
                   {b.package_value != null ? (
                     <>
-                      <span>Package value (before taxes) {formatRupees(b.package_value)}</span>
+                      <span>Package value {formatRupees(b.package_value)}</span>
                       {Number(b.tax_amount) > 0 && <span>Booking total {formatRupees(b.total_amount)}</span>}
                     </>
                   ) : (
@@ -3837,6 +3844,10 @@ export default function App() {
             </div>
           );
         })()}
+
+        {screen === "fees" && session && partnerVenue?.venue_id && (
+          <PartnerFees token={session.token} venueId={partnerVenue.venue_id} />
+        )}
 
         {screen === "packages" && (
           <div>
@@ -5023,6 +5034,7 @@ export default function App() {
           { key: "upcoming", label: "Upcoming Events", Icon: CalendarClock },
           { key: "menu", label: "Menu Management", Icon: UtensilsCrossed },
           { key: "payments", label: "Payments", Icon: Wallet },
+          { key: "fees", label: "PAXO fees", Icon: IndianRupee },
           { key: "profile", label: "Profile", Icon: User },
         ].map(({ key, label, Icon }) => {
           const active = screen === key;

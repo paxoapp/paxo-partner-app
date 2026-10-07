@@ -74,6 +74,18 @@ const fmtDateTime = (d) =>
 const inr = (n) =>
   Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
+// The deposit the venue is passed: what the customer paid online minus any refund. PAXO's platform
+// fee is no longer taken out of it (the venue pays the fee to PAXO separately, see Platform fees).
+const depositToPass = (p) => Math.max(0, Math.round((Number(p?.amount || 0) - Number(p?.refund_amount || 0)) * 100) / 100);
+
+// The platform fee row (booking_commissions) embedded under a payment's booking.
+function feeOfPayment(p) {
+  const c = p?.bookings?.booking_commissions;
+  const list = Array.isArray(c) ? c : c ? [c] : [];
+  return list.find((x) => !x.kind || x.kind === "commission") || null;
+}
+const FEE_STATUS_LABELS = { pending: "Upcoming", due: "Due", debited: "Paid", failed: "Payment problem", cancelled: "Not charged" };
+
 // Central place a real notification would fire from once providers exist.
 function logStatusChange(venue, action, note) {
   // TODO: send email/SMS/WhatsApp notification once providers are configured
@@ -975,13 +987,14 @@ function TransactionReceipt({ session, payment: p, onBack }) {
         </div>
 
         <div className="mb-4">
-          <h3 className="font-medium text-sm mb-2">2. Platform fee retained by PAXO</h3>
-          <Row label="Platform fee" value={inr(p.platform_fee_amount)} />
+          <h3 className="font-medium text-sm mb-2">2. PAXO platform fee (paid separately by the venue)</h3>
+          <Row label="Platform fee" value={feeOfPayment(p) ? inr(feeOfPayment(p).amount) : "—"} />
+          <Row label="Fee status" value={feeOfPayment(p) ? FEE_STATUS_LABELS[feeOfPayment(p).status] || feeOfPayment(p).status : "—"} />
         </div>
 
         <div className="mb-4">
-          <h3 className="font-medium text-sm mb-2">3. Payout — PAXO → Partner</h3>
-          <Row label="Payable to partner" value={inr(p.partner_payout_amount)} />
+          <h3 className="font-medium text-sm mb-2">3. Deposit to pass to the venue — PAXO → Partner</h3>
+          <Row label="To transfer to the venue" value={inr(depositToPass(p))} />
           <Row
             label="Settlement status"
             value={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
@@ -1038,9 +1051,10 @@ function Settlements({ session }) {
     setError("");
     try {
       const data = await sb(
-        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,platform_fee_amount," +
-          "partner_payout_amount,paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,refund_amount," +
+          "paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
+          "booking_commissions(kind,amount,percent,status)," +
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
@@ -1093,7 +1107,7 @@ function Settlements({ session }) {
       `IFSC: ${bd.ifsc_code || "—"}`,
       `Bank: ${bd.bank_name || "—"}${bd.branch_name ? " (" + bd.branch_name + ")" : ""}`,
       bd.upi_id ? `UPI: ${bd.upi_id}` : null,
-      `Amount to transfer: ${inr(p.partner_payout_amount)}`,
+      `Amount to transfer: ${inr(depositToPass(p))}`,
     ].filter(Boolean);
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -1111,7 +1125,7 @@ function Settlements({ session }) {
   }, {});
   const pendingPayout = rows
     .filter((r) => r.settlement_status === "pending")
-    .reduce((s, r) => s + Number(r.partner_payout_amount || 0), 0);
+    .reduce((s, r) => s + depositToPass(r), 0);
 
   if (viewingReceipt) {
     return (
@@ -1123,7 +1137,7 @@ function Settlements({ session }) {
     <div>
       <h1 className="text-2xl font-semibold mb-1">Settlements</h1>
       <p className="text-sm text-slate-500 mb-4">
-        Paid customer payments and the payout owed to each partner.{" "}
+        Paid customer deposits and the amount to pass to each venue.{" "}
         {inr(pendingPayout)} pending across {counts.pending || 0} payment
         {(counts.pending || 0) === 1 ? "" : "s"}.
       </p>
@@ -1157,8 +1171,8 @@ function Settlements({ session }) {
                 <th className="text-left px-4 py-2">Venue</th>
                 <th className="text-left px-4 py-2">Event date</th>
                 <th className="text-right px-4 py-2">Amount paid</th>
-                <th className="text-right px-4 py-2">Platform fee</th>
-                <th className="text-right px-4 py-2">Partner payout</th>
+                <th className="text-right px-4 py-2">Platform fee (paid separately)</th>
+                <th className="text-right px-4 py-2">To transfer to venue</th>
                 <th className="text-left px-4 py-2">Paid on</th>
                 <th className="text-left px-4 py-2">Settlement</th>
                 <th className="px-4 py-2" />
@@ -1181,8 +1195,8 @@ function Settlements({ session }) {
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.bookings?.event_date)}</td>
                   <td className="px-4 py-2.5 text-right">{inr(p.amount)}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-500">{inr(p.platform_fee_amount)}</td>
-                  <td className="px-4 py-2.5 text-right font-medium">{inr(p.partner_payout_amount)}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500">{feeOfPayment(p) ? inr(feeOfPayment(p).amount) : "—"}</td>
+                  <td className="px-4 py-2.5 text-right font-medium">{inr(depositToPass(p))}</td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.paid_at)}</td>
                   <td className="px-4 py-2.5">
                     {p.settlement_status === "settled" ? (
@@ -1250,7 +1264,7 @@ function Settlements({ session }) {
           >
             <p className="font-medium mb-1">Mark this settlement complete?</p>
             <p className="text-sm text-slate-600 mb-3">
-              Confirm you've transferred {inr(confirming.partner_payout_amount)} to{" "}
+              Confirm you've transferred {inr(depositToPass(confirming))} to{" "}
               {confirming.bookings?.venues?.name || "this partner"}. This only records that the bank
               transfer has actually happened — it doesn't move any money.
             </p>
@@ -2775,6 +2789,7 @@ function Requests({ session }) {
 function Dashboard({ session, venues, onGoToOnboarding }) {
   const [bookings, setBookings] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [fees, setFees] = useState([]);
   const [customerCount, setCustomerCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -2783,19 +2798,21 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
     setLoading(true);
     setError("");
     try {
-      const [bk, pm, prof] = await Promise.all([
+      const [bk, pm, prof, fe] = await Promise.all([
         sb(
           "/rest/v1/bookings?select=id,total_amount,status,event_date,contact_name,created_at,venues(name)&order=created_at.desc&limit=5000",
           { token: session.token }
         ),
         sb(
-          "/rest/v1/payments?status=eq.paid&select=amount,platform_fee_amount,partner_payout_amount,settlement_status&limit=5000",
+          "/rest/v1/payments?status=eq.paid&select=amount,refund_amount,settlement_status&limit=5000",
           { token: session.token }
         ),
         sb("/rest/v1/profiles?select=id", { token: session.token }),
+        sb("/rest/v1/booking_commissions?kind=eq.commission&select=amount,status&limit=5000", { token: session.token }),
       ]);
       setBookings(bk);
       setPayments(pm);
+      setFees(fe || []);
       setCustomerCount(prof.length);
     } catch (e) {
       setError(e.message);
@@ -2813,11 +2830,13 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
     bookings.filter((b) => !["cancelled", "rejected", "payment_expired"].includes(b.status)),
     (b) => b.total_amount
   );
-  const platformRevenue = sum(payments, (p) => p.platform_fee_amount);
+  // Platform revenue counts only fees marked Paid; fees that are due are shown beside it.
+  const platformRevenue = sum(fees.filter((f) => f.status === "debited"), (f) => f.amount);
+  const feesDue = sum(fees.filter((f) => f.status === "due"), (f) => f.amount);
   const depositsCollected = sum(payments, (p) => p.amount);
   const pendingPayouts = sum(
     payments.filter((p) => p.settlement_status === "pending"),
-    (p) => p.partner_payout_amount
+    depositToPass
   );
 
   const bookingCounts = bookings.reduce((a, b) => {
@@ -2833,9 +2852,10 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
 
   const kpis = [
     ["GMV", gmv],
-    ["Platform Revenue", platformRevenue],
+    ["Platform revenue (fees paid)", platformRevenue],
+    ["Fees due", feesDue],
     ["Deposits Collected", depositsCollected],
-    ["Pending Payouts", pendingPayouts],
+    ["Deposits to pass to venues", pendingPayouts],
   ];
 
   return (
@@ -2849,7 +2869,7 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
         <p className="text-slate-400 text-sm">Loading…</p>
       ) : (
         <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {kpis.map(([label, val]) => (
               <div key={label} className="bg-white border border-slate-200 rounded-lg p-4">
                 <p className="text-xs text-slate-500">{label}</p>

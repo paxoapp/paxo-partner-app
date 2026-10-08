@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet, IndianRupee } from "lucide-react";
 import SocialLinks from "./SocialLinks";
-import { sb, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
+import { sb, rpc, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
 
 const PARTNER_SESSION_KEY = "paxo_partner_session";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
@@ -9,7 +9,7 @@ import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
 import PartnerFees from "./platformFees";
-import BookingPage, { CompletedList } from "./bookingPage";
+import BookingPage, { CompletedList, checkinErrorText, todayIST } from "./bookingPage";
 import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
@@ -932,28 +932,28 @@ export default function App() {
     }
   }
 
-  // Partner enters the code the customer shows on arrival. Matched client-side;
-  // on success the base table's event_started_at is stamped (partners are a
-  // trusted caller for that column).
+  // Partner enters the code the customer shows on arrival. The database checks it (the code is
+  // never sent to this app); a right code stamps the check-in, a wrong one counts an attempt.
   async function confirmEventStarted(booking) {
     const entered = (checkinInput[booking.id] || "").trim();
     setCheckinError((m) => ({ ...m, [booking.id]: "" }));
-    if (!entered || entered !== String(booking.checkin_otp || "")) {
-      setCheckinError((m) => ({ ...m, [booking.id]: "Incorrect code, please try again." }));
+    if (!/^[0-9]{6}$/.test(entered)) {
+      setCheckinError((m) => ({ ...m, [booking.id]: "Enter the customer's 6-digit code." }));
       return;
     }
     setCheckinBusyId(booking.id);
     try {
-      await sb(`/rest/v1/bookings?id=eq.${booking.id}`, {
-        method: "PATCH",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { event_started_at: new Date().toISOString() },
-      });
+      const res = await rpc(session.token, "verify_checkin_code", { p_booking_id: booking.id, p_code: entered });
+      if (!res?.ok) {
+        setCheckinError((m) => ({ ...m, [booking.id]: checkinErrorText(res) }));
+        if (res?.reason !== "wrong_code") setCheckinInput((m) => ({ ...m, [booking.id]: "" }));
+        if (res?.reason === "already_checked_in") await loadBookings(session.token, partnerVenue.venue_id);
+        return;
+      }
       setCheckinInput((m) => ({ ...m, [booking.id]: "" }));
       await loadBookings(session.token, partnerVenue.venue_id);
     } catch (e) {
-      setCheckinError((m) => ({ ...m, [booking.id]: e.message || "Couldn't confirm. Please try again." }));
+      setCheckinError((m) => ({ ...m, [booking.id]: e.message || "Couldn't check the code. Please try again." }));
     } finally {
       setCheckinBusyId(null);
     }
@@ -1002,7 +1002,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,checkin_otp,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -3282,15 +3282,13 @@ export default function App() {
                                 minute: "2-digit",
                               })}
                             </p>
-                          ) : !b.checkin_otp ? (
-                            <p className="text-xs text-stone-500">
-                              Waiting for the customer to generate their check-in code.
-                            </p>
+                          ) : String(b.event_date).slice(0, 10) > todayIST() ? (
+                            <p className="text-xs text-stone-500">Check-in opens on the day of the event.</p>
                           ) : (
                             <>
                               <p className="text-sm font-medium mb-1">Confirm event started</p>
                               <p className="text-xs text-stone-500 mb-2">
-                                Enter the 6-digit code the customer shows you on arrival.
+                                Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate check-in code”.
                               </p>
                               <div className="flex flex-wrap gap-2">
                                 <input
@@ -3405,7 +3403,7 @@ export default function App() {
               menuNode={<FinalizedMenuBody booking={b} categories={categories} />}
               checkin={{
                 value: checkinInput[b.id] || "",
-                onChange: (v) => setCheckinInput((m) => ({ ...m, [b.id]: v.replace(/D/g, "") })),
+                onChange: (v) => setCheckinInput((m) => ({ ...m, [b.id]: v.replace(/\D/g, "").slice(0, 6) })),
                 error: checkinError[b.id],
                 busy: checkinBusyId === b.id,
                 onConfirm: () => confirmEventStarted(b),

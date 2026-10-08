@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { sb, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY, saveSession, loadSession, clearSession } from "./supabase";
+import { sb, rpc, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY, saveSession, loadSession, clearSession } from "./supabase";
 
 // Separate localStorage key from the partner app's, even though they're
 // different origins anyway -- keeps intent obvious if that ever changes.
@@ -1360,6 +1360,35 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState("");
+  const [manualNote, setManualNote] = useState("");
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualError, setManualError] = useState("");
+  const [override, setOverride] = useState(null); // recorded admin check-in note, if any
+
+  useEffect(() => {
+    let live = true;
+    sb(`/rest/v1/booking_checkin_overrides?booking_id=eq.${b.id}&select=note,created_at`, { token: session.token })
+      .then((r) => live && setOverride((r || [])[0] || null))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [b.id, b.event_started_at, session.token]);
+
+  // Admin fallback when the customer cannot show a check-in code. A note is required and recorded.
+  async function handleManualCheckin() {
+    setManualBusy(true);
+    setManualError("");
+    try {
+      await rpc(session.token, "admin_set_checkin", { p_booking_id: b.id, p_note: manualNote.trim() });
+      setManualNote("");
+      await onRefresh();
+    } catch (e) {
+      setManualError(e.message || "Couldn't record the check-in.");
+    } finally {
+      setManualBusy(false);
+    }
+  }
 
   async function handleAdminCancel(reasonText) {
     setCancelBusy(true);
@@ -1420,10 +1449,35 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
         <Row label="Responded" value={fmtDateTime(b.responded_at)} />
         <Row label="Payment deadline" value={fmtDateTime(b.payment_deadline)} />
         <Row label="Menu finalized" value={fmtDateTime(b.menu_finalized_at)} />
-        <Row label="Check-in OTP generated" value={fmtDateTime(b.checkin_otp_generated_at)} />
         <Row label="Event started (checked in)" value={fmtDateTime(b.event_started_at)} />
+        {override && <Row label="Checked in by admin (note)" value={override.note} />}
         <Row label="Cancelled" value={fmtDateTime(b.cancelled_at)} />
       </div>
+
+      {b.status === "confirmed" && !b.event_started_at && (
+        <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4" data-testid="manual-checkin">
+          <h3 className="font-medium text-sm mb-1">Check in manually</h3>
+          <p className="text-xs text-stone-500 mb-2">
+            Only when the customer cannot show their check-in code. A note is required and is recorded with your name.
+          </p>
+          <textarea
+            rows={2}
+            className="border border-stone-300 rounded px-3 py-2 text-sm w-full mb-2"
+            placeholder="Why is this check-in being done by an admin? (at least 5 characters)"
+            value={manualNote}
+            onChange={(e) => setManualNote(e.target.value)}
+          />
+          {manualError && <p className="text-sm text-rose-600 mb-2">{manualError}</p>}
+          <button
+            type="button"
+            disabled={manualBusy || manualNote.trim().length < 5}
+            onClick={handleManualCheckin}
+            className="bg-slate-900 text-white text-sm font-medium rounded-lg px-4 py-2 disabled:opacity-50"
+          >
+            {manualBusy ? "Recording…" : "Check in this booking"}
+          </button>
+        </div>
+      )}
 
       {b.status === "rejected" && b.rejection_reason && (
         <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 mb-4 text-sm">
@@ -2659,7 +2713,7 @@ function Requests({ session }) {
           "is_last_minute,booking_type,partner_response_deadline,payment_deadline," +
           "total_amount,deposit_tier,deposit_amount,contact_name,contact_mobile," +
           "contact_email,rejection_reason,cancellation_reason,cancelled_at,menu_finalized_at," +
-          "checkin_otp_generated_at,event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
+          "event_started_at,partner_disclosure_note,disclosure_response,occasion_other," +
           "special_request,venues(name),venue_packages(name)," +
           "booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes)" +
           "&order=requested_at.desc&limit=5000",

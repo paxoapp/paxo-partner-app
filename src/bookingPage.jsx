@@ -13,6 +13,24 @@ export const todayIST = () => new Date().toLocaleDateString("en-CA", { timeZone:
 const oneRow = (v) => (Array.isArray(v) ? v[0] || null : v || null);
 export const balanceOf = (b) => oneRow(b?.booking_balance_payments);
 
+// What the venue sees when the check-in call returns a code problem.
+export function checkinErrorText(res) {
+  switch (res?.reason) {
+    case "wrong_code":
+      return `That code isn't right. ${res.attempts_left} ${res.attempts_left === 1 ? "try" : "tries"} left.`;
+    case "locked":
+      return "Too many wrong tries. Ask the customer to generate a new code.";
+    case "expired":
+      return "This code has expired. Ask the customer to generate a new code.";
+    case "no_code":
+      return "The customer hasn't generated a check-in code yet. Ask them to open their booking and tap “Generate check-in code”.";
+    case "already_checked_in":
+      return "This booking is already checked in.";
+    default:
+      return "Couldn't check the code. Please try again.";
+  }
+}
+
 // What the venue sees when the balance call returns a code problem.
 export function balanceErrorText(res) {
   switch (res?.reason) {
@@ -238,12 +256,12 @@ export function BookingPageView({ b, menuNode, checkin, onRecord, onClose, onGoT
           {b.event_started_at ? (
             <p className="text-sm font-medium text-emerald-700 mb-3">✓ Checked in at {fmtIST(b.event_started_at)}</p>
           ) : b.status === "confirmed" ? (
-            !b.checkin_otp ? (
-              <p className="text-xs text-stone-500 mb-3">Waiting for the customer to generate their check-in code.</p>
+            String(b.event_date).slice(0, 10) > todayIST() ? (
+              <p className="text-xs text-stone-500 mb-3">Check-in opens on the day of the event.</p>
             ) : (
               <div className="mb-3">
                 <p className="text-sm font-medium mb-1">Confirm event started</p>
-                <p className="text-xs text-stone-500 mb-2">Enter the 6-digit code the customer shows you on arrival.</p>
+                <p className="text-xs text-stone-500 mb-2">Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate check-in code”.</p>
                 <div className="flex flex-wrap gap-2">
                   <input inputMode="numeric" maxLength={6} placeholder="6-digit code" value={checkin?.value || ""} onChange={(e) => checkin?.onChange(e.target.value)} className="border border-stone-300 rounded px-3 py-2 text-sm w-40" />
                   <button type="button" disabled={checkin?.busy} onClick={checkin?.onConfirm} className="bg-slate-900 text-white text-sm px-4 py-2 rounded disabled:opacity-60">{checkin?.busy ? "Checking…" : "Confirm"}</button>

@@ -9,6 +9,7 @@ import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
 import PartnerFees from "./platformFees";
+import { oneHold, holdText, holdBadgeClass } from "./holds";
 import BookingPage, { CompletedList, checkinErrorText, checkinPhase, CHECKIN_EARLY_TEXT, CHECKIN_CLOSED_TEXT } from "./bookingPage";
 import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
@@ -31,7 +32,8 @@ function formatCountdown(totalMinutes) {
   return `${mins} min`;
 }
 
-const BOOKING_TYPE_LABELS = { standard: "Standard", secure: "Secure", instant: "Instant" };
+// Standard = booked more than 72 hours before the event; Late = 72 hours or less. (secure / instant are old rows only.)
+const BOOKING_TYPE_LABELS = { standard: "Standard", late: "Late", secure: "Secure", instant: "Instant" };
 
 const statusColor = {
   pending: "bg-amber-100 text-amber-800",
@@ -391,11 +393,11 @@ const PARTNER_FAQ_SECTIONS = [
     items: [
       {
         q: "What actually happens when a customer books?",
-        a: "A customer picks one of your packages and sends a booking request. You get up to 4 hours (Standard), 2 hours (Secure), or 30 minutes (Instant) to accept or reject it, depending on how soon their event is. Once you accept, the customer pays their deposit through PAXO and the booking is confirmed — the rest of the bill is settled directly with you at the venue.",
+        a: "A customer picks one of your packages and sends a booking request. You get up to 4 hours (1 hour if the event is within 72 hours, and never later than 2 hours before the event) to accept or reject it. Once you accept, the customer pays their deposit through PAXO and the booking is confirmed — the rest of the bill is settled directly with you at the venue.",
       },
       {
         q: "Why do some bookings have a bigger deposit than others?",
-        a: "It's based on how far away the event is when the request comes in, not the guest count. 7+ days out is a Standard Booking (20% deposit). Within a week but more than 48 hours out is Secure (50%). Under 48 hours is Instant (50%, and non-refundable). This is fixed once at the moment the customer submits — it never changes later.",
+        a: "It's based on how far away the event is when the request comes in, not the guest count. More than 72 hours out is a Standard booking (20% deposit, refundable by the cancellation schedule). 72 hours or less is a Late booking (50% deposit, non-refundable). This is fixed once at the moment the customer submits — it never changes later.",
       },
     ],
   },
@@ -421,7 +423,7 @@ const PARTNER_FAQ_SECTIONS = [
       },
       {
         q: "When do I actually get paid?",
-        a: "Your payout releases once the guest checks in with their OTP at the event — not when they pay the deposit. Settlement to your account is processed within 3 working days of that check-in.",
+        a: "Each booking shows where its deposit is: \"Deposit held by PAXO until …\", \"Ready to be released to you\", then \"Released on …\". For a Standard booking it becomes ready 48 hours before the event; for a Late booking, after the event (when it is completed, or 12 hours after the event starts). It is never ready before the payment has settled with the payment gateway. PAXO then pays it to your bank account.",
       },
       {
         q: "A guest never shared their OTP — what happens?",
@@ -434,7 +436,7 @@ const PARTNER_FAQ_SECTIONS = [
     items: [
       {
         q: "A customer cancelled — do I still get paid?",
-        a: "Depends on the refund slab their Booking Type falls into. Standard: full refund if cancelled >72h before the event, 50% kept if 48–72h, nothing refunded under 48h. Secure: full refund >96h, 50% kept 72–96h, nothing under 72h. Instant bookings are never refundable. Whatever isn't refunded to the customer is split between PAXO's fee and your payout, same as a normal booking.",
+        a: "Depends on when they cancel. On a Standard booking the customer gets 100% of the deposit back if they cancel more than 72 hours before the event, 50% from 72 down to 48 hours, and nothing under 48 hours; the part that isn't refunded stays with your share of the deposit. A Late booking is non-refundable, so the whole deposit stays. If PAXO cancels because of the venue, you decline, or you don't respond, the customer gets back everything they paid.",
       },
       {
         q: "Can I cancel a confirmed booking myself?",
@@ -991,7 +993,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_deposit_holds(release_status,deposit_release_at,released_at),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -2842,7 +2844,7 @@ export default function App() {
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-stone-400">Booking type</span>
-                    <span className={b.booking_type === "instant" ? "font-bold text-rose-600" : "font-medium text-stone-700"}>
+                    <span className={b.booking_type === "late" || b.booking_type === "instant" ? "font-bold text-rose-600" : "font-medium text-stone-700"}>
                       {BOOKING_TYPE_LABELS[b.booking_type] || b.booking_type || "—"}
                     </span>
                   </div>
@@ -3044,7 +3046,13 @@ export default function App() {
 
                 {b.status === "cancelled" && (
                   <div className="border border-rose-200 bg-rose-50 rounded-lg p-3 text-xs">
-                    <p className="font-semibold text-rose-700">Cancelled by customer</p>
+                    <p className="font-semibold text-rose-700">
+                      {b.cancelled_by === "admin"
+                        ? "Cancelled by PAXO"
+                        : b.cancelled_by === "system"
+                          ? "Cancelled — no response in time"
+                          : "Cancelled by customer"}
+                    </p>
                     {b.cancellation_reason && (
                       <p className="text-stone-600 mt-0.5 whitespace-pre-wrap">
                         {b.cancellation_reason}
@@ -3593,6 +3601,7 @@ export default function App() {
                 const payment = primaryPayment(b);
                 const isSettled = payment?.settlement_status === "settled";
                 const checkedIn = Boolean(b.event_started_at);
+                const hold = oneHold(b);
                 let badgeLabel, badgeClass;
                 if (b.status === "accepted") {
                   badgeLabel = "Awaiting customer payment";
@@ -3603,11 +3612,14 @@ export default function App() {
                 } else if (b.status === "cancelled") {
                   badgeLabel = "Deposit pending (booking cancelled)";
                   badgeClass = "bg-rose-100 text-rose-800";
+                } else if (hold && holdText(hold)) {
+                  badgeLabel = holdText(hold);
+                  badgeClass = holdBadgeClass(hold);
                 } else if (checkedIn) {
                   badgeLabel = "Checked in — deposit pending";
                   badgeClass = "bg-sky-100 text-sky-800";
                 } else {
-                  badgeLabel = "Deposit paid — passed to you after check-in";
+                  badgeLabel = "Deposit paid — held by PAXO";
                   badgeClass = "bg-sky-100 text-sky-800";
                 }
                 // The one number that matters most for scanning this list at a glance:

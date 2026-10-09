@@ -1,3 +1,4 @@
+import { oneHold, holdText } from "./holds";
 import { useState, useEffect, useCallback } from "react";
 import { sb, rpc, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY, saveSession, loadSession, clearSession } from "./supabase";
 
@@ -76,7 +77,16 @@ const inr = (n) =>
 
 // The deposit the venue is passed: what the customer paid online minus any refund. PAXO's platform
 // fee is no longer taken out of it (the venue pays the fee to PAXO separately, see Platform fees).
-const depositToPass = (p) => Math.max(0, Math.round((Number(p?.amount || 0) - Number(p?.refund_amount || 0)) * 100) / 100);
+// Amount to pay the venue = deposit paid - refund to the customer - the gateway fee deducted from that refund
+// (which equals the forfeited amount). The gateway fee is never taken out of the venue's share.
+// Example: deposit Rs 2,000, 50% slab, fee Rs 47.20 -> customer gets 1,000 - 47.20 = Rs 952.80; venue gets 2,000 - 952.80 - 47.20 = Rs 1,000.
+const depositToPass = (p) =>
+  Math.max(
+    0,
+    Math.round((Number(p?.amount || 0) - Number(p?.refund_amount || 0) - Number(p?.gateway_fee_deducted || 0)) * 100) / 100
+  );
+const inr2 = (n) =>
+  Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // The platform fee row (booking_commissions) embedded under a payment's booking.
 function feeOfPayment(p) {
@@ -994,7 +1004,12 @@ function TransactionReceipt({ session, payment: p, onBack }) {
 
         <div className="mb-4">
           <h3 className="font-medium text-sm mb-2">3. Deposit to pass to the venue — PAXO → Partner</h3>
-          <Row label="To transfer to the venue" value={inr(depositToPass(p))} />
+          {Number(p.refund_amount) > 0 && <Row label="Refunded to the customer" value={inr2(p.refund_amount)} />}
+          {Number(p.gateway_fee_deducted) > 0 && (
+            <Row label="Gateway fee deducted from that refund (kept by PAXO)" value={inr2(p.gateway_fee_deducted)} />
+          )}
+          <Row label="To transfer to the venue" value={inr2(depositToPass(p))} />
+          {holdText(oneHold(b)) && <Row label="Release status" value={holdText(oneHold(b))} />}
           <Row
             label="Settlement status"
             value={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
@@ -1051,10 +1066,10 @@ function Settlements({ session }) {
     setError("");
     try {
       const data = await sb(
-        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,refund_amount," +
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,refund_amount,gateway_fee_deducted,refund_status," +
           "paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
-          "booking_commissions(kind,amount,percent,status)," +
+          "booking_commissions(kind,amount,percent,status),booking_deposit_holds(release_status,deposit_release_at,released_at)," +
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
@@ -1444,7 +1459,7 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Timeline</h3>
         <Row label="Requested" value={fmtDateTime(b.requested_at)} />
-        <Row label="Booking type" value={b.booking_type ? b.booking_type[0].toUpperCase() + b.booking_type.slice(1) : "—"} />
+        <Row label="Booking type" value={b.booking_type === "late" ? "Late (72 hours or less before the event)" : b.booking_type === "standard" ? "Standard (more than 72 hours before the event)" : b.booking_type ? b.booking_type[0].toUpperCase() + b.booking_type.slice(1) + " (old rules)" : "—"} />
         <Row label="Partner response deadline" value={fmtDateTime(b.partner_response_deadline)} />
         <Row label="Responded" value={fmtDateTime(b.responded_at)} />
         <Row label="Payment deadline" value={fmtDateTime(b.payment_deadline)} />
@@ -1537,7 +1552,7 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
             refunds the customer's full deposit ({inr(b.deposit_amount)})
             and pays the partner nothing for this booking — this is
             different from a customer-initiated cancellation, which
-            follows the normal refund slabs.
+            follows the cancellation schedule (and has the payment gateway fee deducted).
           </p>
           {cancelError && <p className="text-rose-600 text-sm mb-2">{cancelError}</p>}
           {!cancelling ? (
@@ -2845,25 +2860,42 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
   const [payments, setPayments] = useState([]);
   const [fees, setFees] = useState([]);
   const [customerCount, setCustomerCount] = useState(null);
+  const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  async function resolveAlert(id) {
+    try {
+      await sb(`/rest/v1/admin_alerts?id=eq.${id}`, {
+        method: "PATCH",
+        token: session.token,
+        prefer: "return=minimal",
+        body: { resolved_at: new Date().toISOString() },
+      });
+      setAlerts((a) => a.filter((x) => x.id !== id));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [bk, pm, prof, fe] = await Promise.all([
+      const [bk, pm, prof, fe, al] = await Promise.all([
         sb(
           "/rest/v1/bookings?select=id,total_amount,status,event_date,contact_name,created_at,venues(name)&order=created_at.desc&limit=5000",
           { token: session.token }
         ),
         sb(
-          "/rest/v1/payments?status=eq.paid&select=amount,refund_amount,settlement_status&limit=5000",
+          "/rest/v1/payments?status=eq.paid&select=amount,refund_amount,gateway_fee_deducted,settlement_status&limit=5000",
           { token: session.token }
         ),
         sb("/rest/v1/profiles?select=id", { token: session.token }),
         sb("/rest/v1/booking_commissions?kind=eq.commission&select=amount,status&limit=5000", { token: session.token }),
+        sb("/rest/v1/admin_alerts?resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
       ]);
+      setAlerts(al || []);
       setBookings(bk);
       setPayments(pm);
       setFees(fe || []);
@@ -2918,6 +2950,23 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
       <p className="text-sm text-slate-500 mb-4">Live platform overview.</p>
 
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      {alerts.length > 0 && (
+        <div className="border border-rose-200 bg-rose-50 rounded-lg p-4 mb-4" data-testid="admin-alerts">
+          <h2 className="text-sm font-semibold text-rose-800 mb-1">Needs your attention</h2>
+          {alerts.map((a) => (
+            <div key={a.id} className="flex items-start justify-between gap-3 text-sm text-rose-900 py-1.5 border-t border-rose-100 first:border-0">
+              <span>
+                {a.urgent && <strong>URGENT · </strong>}
+                {a.message}
+              </span>
+              <button type="button" onClick={() => resolveAlert(a.id)} className="text-xs underline whitespace-nowrap">
+                Mark handled
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>

@@ -3,6 +3,7 @@ import { rpc } from "./supabase";
 import { formatRupees, round2 } from "./tax";
 import { commissionOf, hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 import { feeState, fmtDay, fmtIST, StateChip } from "./platformFees";
+import { oneHold, holdText } from "./holds";
 
 // One page per booking: timeline, money, check-in, balance received (with the
 // customer's 6-digit code), and PAXO's platform fee. Partner side only.
@@ -249,6 +250,7 @@ export function BookingPageView({ b, menuNode, checkin, onRecord, onClose, onGoT
             {paid && (
               <Row k="Paid online (deposit)" v={`${formatRupees(paidOnline)}${depPay?.paid_at ? ` · ${fmtIST(depPay.paid_at)}` : ""}`} />
             )}
+            {oneHold(b) && holdText(oneHold(b)) && <Row k="Deposit" v={holdText(oneHold(b))} />}
             {paid && <Row k={balance ? "Expected at the venue" : "To collect at the venue"} v={formatRupees(balance ? balance.expected_balance : expected)} />}
             {balance && <Row k={`Balance received (${balance.mode === "cash" ? "cash" : "online"})`} v={`${formatRupees(balance.amount_received)} · ${fmtIST(balance.received_at)}`} strong />}
             {balance && Number(balance.difference) !== 0 && (

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { sb, uploadPartnerDocument } from "./supabase";
+import { sb, rpc, uploadPartnerDocument } from "./supabase";
 import StatusStepper from "./StatusStepper";
 
 export const VENUE_TYPES = [
@@ -183,16 +183,11 @@ export function VenueSubmissionForm({ session, initial, referredByVenueId, onSub
             referred_by_venue_id: referredByVenueId || null,
           },
         });
-        await sb("/rest/v1/partner_users", {
-          method: "POST",
-          token: session.token,
-          prefer: "return=minimal",
-          body: {
-            id: session.userId,
-            venue_id: venueId,
-            full_name: f.contact_person_name.trim(),
-            phone: f.contact_phone.trim(),
-          },
+        // The link is made by the database, and only for a venue this account just created.
+        await rpc(session.token, "link_partner_to_new_venue", {
+          p_venue_id: venueId,
+          p_full_name: f.contact_person_name.trim(),
+          p_phone: f.contact_phone.trim(),
         });
         await recordAgreementAcceptance(session, venueId, "registration");
       }

@@ -519,8 +519,6 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authFullName, setAuthFullName] = useState("");
   const [authPhone, setAuthPhone] = useState("");
-  const [approvedVenues, setApprovedVenues] = useState([]);
-  const [claimVenueId, setClaimVenueId] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -549,7 +547,6 @@ export default function App() {
   const [menuExpanded, setMenuExpanded] = useState({}); // { [bookingId]: true } — Finalized menu open; collapsed by default
   const [detailBookingId, setDetailBookingId] = useState(null); // booking id shown in the detail view
 
-  const [claimVenuePending, setClaimVenuePending] = useState(""); // used on the post-Google "claim venue" screen
 
   const [resetMethod, setResetMethod] = useState("email");
   const [resetStep, setResetStep] = useState("request");
@@ -959,14 +956,6 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    if (screen === "auth" && authMode === "signup") {
-      sb("/rest/v1/venues?select=id,name,city&status=eq.approved&order=name.asc")
-        .then(setApprovedVenues)
-        .catch(() => {});
-    }
-  }, [screen, authMode]);
-
   const loadPartnerVenue = useCallback(async (token, userId) => {
     const [row] = await sb(
       `/rest/v1/partner_users?id=eq.${userId}&select=*,venues(*,agreement_acceptances(checkpoint))`,
@@ -1323,30 +1312,6 @@ export default function App() {
     window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(
       redirectTo
     )}`;
-  }
-
-  async function claimVenue(e) {
-    e.preventDefault();
-    setAuthError("");
-    if (!claimVenuePending) {
-      setAuthError("Select the venue you manage.");
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      await sb("/rest/v1/partner_users", {
-        method: "POST",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { id: session.userId, venue_id: claimVenuePending },
-      });
-      await loadPartnerVenue(session.token, session.userId);
-      setScreen("dashboard");
-    } catch (e) {
-      setAuthError(e.message);
-    } finally {
-      setAuthLoading(false);
-    }
   }
 
   async function requestEmailReset(e) {
@@ -2467,40 +2432,6 @@ export default function App() {
               className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
             >
               {newPasswordLoading ? "Saving…" : "Save new password"}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "claimVenue") {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-stone-900 via-stone-950 to-stone-900 text-white flex flex-col justify-center px-6 py-16">
-        <div className="max-w-sm mx-auto w-full">
-          <h1 className="font-black text-3xl mb-1">Which venue do you manage?</h1>
-          <p className="text-stone-400 text-sm mb-6">
-            Link your account to your venue to see its booking requests. (Temporary self-select — this
-            will require an admin-issued invite once the Admin console exists.)
-          </p>
-          <form onSubmit={claimVenue} className="flex flex-col gap-3">
-            <select
-              required
-              className="bg-stone-900 border border-white/10 rounded-full px-5 py-3.5 text-sm text-white focus:outline-none focus:border-accent"
-              value={claimVenuePending}
-              onChange={(e) => setClaimVenuePending(e.target.value)}
-            >
-              <option value="">Select your venue</option>
-              {approvedVenues.map((v) => (
-                <option key={v.id} value={v.id}>{v.name} — {v.city}</option>
-              ))}
-            </select>
-            {authError && <p className="text-rose-400 text-sm px-1">{authError}</p>}
-            <button
-              disabled={authLoading}
-              className="bg-accent text-[#170D0B] rounded-full px-5 py-3.5 text-sm font-semibold disabled:opacity-50"
-            >
-              {authLoading ? "Saving…" : "Continue"}
             </button>
           </form>
         </div>

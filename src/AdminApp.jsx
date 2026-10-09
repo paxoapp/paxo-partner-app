@@ -1,4 +1,4 @@
-import { oneHold, holdText } from "./holds";
+import { oneHold, holdText, depositToPass, inr2, SettlementTransfer } from "./holds";
 import { useState, useEffect, useCallback } from "react";
 import { sb, rpc, signIn, fetchAdminRow, signedDocumentUrl, SUPABASE_URL, ANON_KEY, saveSession, loadSession, clearSession } from "./supabase";
 
@@ -77,17 +77,6 @@ const inr = (n) =>
 
 // The deposit the venue is passed: what the customer paid online minus any refund. PAXO's platform
 // fee is no longer taken out of it (the venue pays the fee to PAXO separately, see Platform fees).
-// Amount to pay the venue = deposit paid - refund to the customer - the gateway fee deducted from that refund
-// (which equals the forfeited amount). The gateway fee is never taken out of the venue's share.
-// Example: deposit Rs 2,000, 50% slab, fee Rs 47.20 -> customer gets 1,000 - 47.20 = Rs 952.80; venue gets 2,000 - 952.80 - 47.20 = Rs 1,000.
-const depositToPass = (p) =>
-  Math.max(
-    0,
-    Math.round((Number(p?.amount || 0) - Number(p?.refund_amount || 0) - Number(p?.gateway_fee_deducted || 0)) * 100) / 100
-  );
-const inr2 = (n) =>
-  Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 // The platform fee row (booking_commissions) embedded under a payment's booking.
 function feeOfPayment(p) {
   const c = p?.bookings?.booking_commissions;
@@ -1002,19 +991,12 @@ function TransactionReceipt({ session, payment: p, onBack }) {
           <Row label="Fee status" value={feeOfPayment(p) ? FEE_STATUS_LABELS[feeOfPayment(p).status] || feeOfPayment(p).status : "—"} />
         </div>
 
-        <div className="mb-4">
-          <h3 className="font-medium text-sm mb-2">3. Deposit to pass to the venue — PAXO → Partner</h3>
-          {Number(p.refund_amount) > 0 && <Row label="Refunded to the customer" value={inr2(p.refund_amount)} />}
-          {Number(p.gateway_fee_deducted) > 0 && (
-            <Row label="Gateway fee deducted from that refund (kept by PAXO)" value={inr2(p.gateway_fee_deducted)} />
-          )}
-          <Row label="To transfer to the venue" value={inr2(depositToPass(p))} />
-          {holdText(oneHold(b)) && <Row label="Release status" value={holdText(oneHold(b))} />}
-          <Row
-            label="Settlement status"
-            value={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
-          />
-        </div>
+        <SettlementTransfer
+          p={p}
+          b={b}
+          Row={Row}
+          settlementText={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
+        />
 
         <div className="mb-2">
           <h3 className="font-medium text-sm mb-2">Payout account on file</h3>

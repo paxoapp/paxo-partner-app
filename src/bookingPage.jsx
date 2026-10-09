@@ -10,6 +10,19 @@ import { feeState, fmtDay, fmtIST, StateChip } from "./platformFees";
 const CASH_WARNING_LIMIT = 200000;
 export const todayIST = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
+// Check-in opens 24 hours before the event start and closes 12 hours after it (India time).
+// The database enforces this; this only decides which message to show. The balance opens with check-in.
+export function checkinPhase(b, nowMs = Date.now()) {
+  const day = String(b.event_date).slice(0, 10);
+  const time = String(b.event_time || "00:00").slice(0, 5);
+  const start = new Date(`${day}T${time}:00+05:30`).getTime();
+  if (nowMs < start - 24 * 3600 * 1000) return "early";
+  if (nowMs > start + 12 * 3600 * 1000) return "closed";
+  return "open";
+}
+export const CHECKIN_EARLY_TEXT = "Check-in opens 24 hours before the event.";
+export const CHECKIN_CLOSED_TEXT = "The check-in window has closed. Contact PAXO support to check this guest in.";
+
 const oneRow = (v) => (Array.isArray(v) ? v[0] || null : v || null);
 export const balanceOf = (b) => oneRow(b?.booking_balance_payments);
 
@@ -23,7 +36,7 @@ export function checkinErrorText(res) {
     case "expired":
       return "This code has expired. Ask the customer to generate a new code.";
     case "no_code":
-      return "The customer hasn't generated a check-in code yet. Ask them to open their booking and tap “Generate check-in code”.";
+      return "The customer hasn't generated a check-in code yet. Ask them to open their booking and tap “Generate code”.";
     case "already_checked_in":
       return "This booking is already checked in.";
     default:
@@ -199,8 +212,8 @@ export function BookingPageView({ b, menuNode, checkin, onRecord, onClose, onGoT
   const detailed = paid && b.package_value != null;
   const fee = commissionOf(b);
   const feeStatus = fee ? feeState({ id: fee.id, status: fee.status }, b.platform_fee_payments || []) : null;
-  const eventDayCame = String(b.event_date).slice(0, 10) <= todayIST();
-  const canRecord = b.status === "confirmed" && paid && eventDayCame && !balance && expected > 0;
+  const balanceOpen = checkinPhase(b) !== "early";
+  const canRecord = b.status === "confirmed" && paid && balanceOpen && !balance && expected > 0;
   const refundPay = pays.find((p) => p.refund_status && p.refund_status !== "none");
 
   return (
@@ -256,12 +269,14 @@ export function BookingPageView({ b, menuNode, checkin, onRecord, onClose, onGoT
           {b.event_started_at ? (
             <p className="text-sm font-medium text-emerald-700 mb-3">✓ Checked in at {fmtIST(b.event_started_at)}</p>
           ) : b.status === "confirmed" ? (
-            String(b.event_date).slice(0, 10) > todayIST() ? (
-              <p className="text-xs text-stone-500 mb-3">Check-in opens on the day of the event.</p>
+            checkinPhase(b) === "early" ? (
+              <p className="text-xs text-stone-500 mb-3">{CHECKIN_EARLY_TEXT}</p>
+            ) : checkinPhase(b) === "closed" ? (
+              <p className="text-xs text-stone-500 mb-3">{CHECKIN_CLOSED_TEXT}</p>
             ) : (
               <div className="mb-3">
                 <p className="text-sm font-medium mb-1">Confirm event started</p>
-                <p className="text-xs text-stone-500 mb-2">Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate check-in code”.</p>
+                <p className="text-xs text-stone-500 mb-2">Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate code”.</p>
                 <div className="flex flex-wrap gap-2">
                   <input inputMode="numeric" maxLength={6} placeholder="6-digit code" value={checkin?.value || ""} onChange={(e) => checkin?.onChange(e.target.value)} className="border border-stone-300 rounded px-3 py-2 text-sm w-40" />
                   <button type="button" disabled={checkin?.busy} onClick={checkin?.onConfirm} className="bg-slate-900 text-white text-sm px-4 py-2 rounded disabled:opacity-60">{checkin?.busy ? "Checking…" : "Confirm"}</button>
@@ -277,7 +292,7 @@ export function BookingPageView({ b, menuNode, checkin, onRecord, onClose, onGoT
           ) : canRecord ? (
             <RecordBalanceForm expected={expected} onSubmit={onRecord} />
           ) : b.status === "confirmed" && paid ? (
-            <p className="text-xs text-stone-500">You can record the balance received from the day of the event.</p>
+            <p className="text-xs text-stone-500">You can record the balance received from 24 hours before the event.</p>
           ) : null}
         </Section>
 

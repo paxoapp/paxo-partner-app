@@ -9,7 +9,7 @@ import OtpVerification from "./OtpVerification";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
 import PartnerFees from "./platformFees";
-import BookingPage, { CompletedList, checkinErrorText, todayIST } from "./bookingPage";
+import BookingPage, { CompletedList, checkinErrorText, checkinPhase, CHECKIN_EARLY_TEXT, CHECKIN_CLOSED_TEXT } from "./bookingPage";
 import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
@@ -3213,13 +3213,15 @@ export default function App() {
                                 minute: "2-digit",
                               })}
                             </p>
-                          ) : String(b.event_date).slice(0, 10) > todayIST() ? (
-                            <p className="text-xs text-stone-500">Check-in opens on the day of the event.</p>
+                          ) : checkinPhase(b) === "early" ? (
+                            <p className="text-xs text-stone-500">{CHECKIN_EARLY_TEXT}</p>
+                          ) : checkinPhase(b) === "closed" ? (
+                            <p className="text-xs text-stone-500">{CHECKIN_CLOSED_TEXT}</p>
                           ) : (
                             <>
                               <p className="text-sm font-medium mb-1">Confirm event started</p>
                               <p className="text-xs text-stone-500 mb-2">
-                                Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate check-in code”.
+                                Enter the 6-digit code the customer shows you on arrival. They get it in their app under “Generate code”.
                               </p>
                               <div className="flex flex-wrap gap-2">
                                 <input

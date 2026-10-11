@@ -11,6 +11,7 @@ import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, rou
 import PartnerFees from "./platformFees";
 import { oneHold, holdText, holdBadgeClass } from "./holds";
 import BookingPage, { CompletedList, checkinErrorText, checkinPhase, CHECKIN_EARLY_TEXT, CHECKIN_CLOSED_TEXT } from "./bookingPage";
+import { CompleteDialog, remainingBalance } from "./balanceNote";
 import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
@@ -286,9 +287,9 @@ function bookingStatusLine(b) {
         hour: "numeric",
         minute: "2-digit",
       });
-      return `Checked in at ${t} — remaining balance due now.`;
+      return `Checked in at ${t}. The venue collects the remaining balance directly.`;
     }
-    return "Confirmed — customer will pay the remaining balance at check-in.";
+    return "Confirmed — the customer pays the remaining balance directly to the venue.";
   }
   if (b.status === "accepted") return "Accepted — awaiting customer payment.";
   return b.status;
@@ -425,9 +426,38 @@ const PARTNER_FAQ_SECTIONS = [
         q: "When do I actually get paid?",
         a: "Each booking shows where its deposit is: \"Deposit held by PAXO until …\", \"Ready to be released to you\", then \"Released on …\". For a Standard booking it becomes ready 48 hours before the event; for a Late booking, after the event (when it is completed, or 12 hours after the event starts). It is never ready before the payment has settled with the payment gateway. PAXO then pays it to your bank account.",
       },
+    ],
+  },
+  {
+    title: "Check-in and the remaining balance",
+    items: [
       {
-        q: "A guest never shared their OTP — what happens?",
-        a: "It's flagged \"Unconfirmed\" for PAXO to review, not treated as an automatic no-show.",
+        q: "How do I check in a guest?",
+        a: "Ask the guest to open their booking in the PAXO app and tap Generate code. They show you the 6-digit code and you enter it in your PAXO app. The code works for 10 minutes. A new one can be generated any time. Check-in is open from 24 hours before the event until 12 hours after it starts.",
+      },
+      {
+        q: "Who collects the remaining balance?",
+        a: "You do. PAXO collects only the booking deposit online. The remaining balance is paid by the guest directly to your venue. PAXO does not collect it or guarantee it.",
+      },
+      {
+        q: "What does PAXO do after check-in?",
+        a: "A successful check-in confirms that the guest reached your venue. PAXO treats the booking as fulfilled, and it completes automatically 12 hours after the event starts. You can also tap Mark as Completed once the event time has passed.",
+      },
+      {
+        q: "Can I record the balance I collected?",
+        a: "Yes. When you mark the event Completed, you can record how the balance was collected and the amount. This is your own record. PAXO does not verify it.",
+      },
+      {
+        q: "Does the platform fee change?",
+        a: "No. The PAXO platform fee is fixed when the deposit is paid and does not depend on the balance collected.",
+      },
+      {
+        q: "The guest cannot show a code. What should I do?",
+        a: "Ask them to open the booking page and tap Generate code. If it still fails, contact PAXO support before serving.",
+      },
+      {
+        q: "Who is responsible for how I collect the balance?",
+        a: "You are. You collect the remaining balance directly from the guest, and you are responsible for following all Indian tax and legal rules on how you receive it. Examples are cash limits (Section 269ST of the Income-tax Act restricts receiving Rs 2 lakh or more in cash from one person in a day), GST, invoicing and reporting. PAXO does not collect, handle or verify this payment and is not responsible for any issue with it. For larger balances we recommend UPI, card or bank transfer.",
       },
     ],
   },
@@ -533,6 +563,8 @@ export default function App() {
   const [rejectReasonOther, setRejectReasonOther] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
   const [actionError, setActionError] = useState("");
+  const [completeFor, setCompleteFor] = useState(null); // booking id whose Mark as Completed dialog is open
+  const [completeError, setCompleteError] = useState("");
   // Accept-with-conflict flow: { id, conflicts: [...] } while the dialog is open.
   const [acceptDialog, setAcceptDialog] = useState(null);
   const [disclosureNote, setDisclosureNote] = useState("");
@@ -913,19 +945,21 @@ export default function App() {
 
   // confirmed -> completed. The DB rejects this before the event has passed
   // ("Cannot mark an event completed before it has happened."); surface that.
-  async function markCompleted(id) {
+  // The venue may add its own note on how the balance was collected; skipping it is fine.
+  async function markCompleted(id, note) {
     setActionError("");
+    setCompleteError("");
     setActionLoading(id);
     try {
-      await sb(`/rest/v1/bookings?id=eq.${id}`, {
-        method: "PATCH",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { status: "completed" },
+      await rpc(session.token, "complete_booking", {
+        p_booking_id: id,
+        p_method: note ? note.method : null,
+        p_amount: note ? note.amount : null,
       });
+      setCompleteFor(null);
       await loadBookings(session.token, partnerVenue.venue_id);
     } catch (e) {
-      setActionError(e.message);
+      setCompleteError(e.message);
     } finally {
       setActionLoading(null);
     }
@@ -993,7 +1027,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_payments(id,expected_balance,amount_received,difference,mode,received_at,note),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_deposit_holds(release_status,deposit_release_at,released_at),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_notes(method,amount,updated_at),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_deposit_holds(release_status,deposit_release_at,released_at),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
           { token }
         ),
       ]);
@@ -3299,7 +3333,7 @@ export default function App() {
 
                       {!cancelled && (
                         <p className="text-xs text-stone-500 mb-3">
-                          Deposit share held — releases on OTP redemption at the event (payment collection not live yet).
+                          The deposit is held by PAXO and released to you under the deposit schedule shown on the booking page.
                         </p>
                       )}
                       {cancelled ? null : confirmed ? (
@@ -3307,7 +3341,7 @@ export default function App() {
                           <button
                             disabled={actionLoading === b.id}
                             className="bg-accent text-[#170D0B] text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 hover:brightness-105 transition"
-                            onClick={() => markCompleted(b.id)}
+                            onClick={() => { setCompleteError(""); setCompleteFor(b.id); }}
                           >
                             {actionLoading === b.id ? "Working…" : "Mark as Completed"}
                           </button>
@@ -3333,6 +3367,22 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {completeFor && (() => {
+          const cb = bookings.find((x) => x.id === completeFor);
+          if (!cb) return null;
+          return (
+            <CompleteDialog
+              b={cb}
+              checkedIn={!!cb.event_started_at}
+              expected={remainingBalance(cb.total_amount, paidOnlineAmount(cb))}
+              busy={actionLoading === cb.id}
+              error={completeError}
+              onComplete={(note) => markCompleted(cb.id, note)}
+              onClose={() => setCompleteFor(null)}
+            />
+          );
+        })()}
 
         {detailBookingId && (() => {
           const b = bookings.find((x) => x.id === detailBookingId);

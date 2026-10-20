@@ -328,6 +328,97 @@ function FeatureForm({ title, onConfirm, onCancel, busy }) {
   );
 }
 
+// The automatic hold (on_hold, set by the job after 3 missed booking-response deadlines) is separate from
+// venue_state. This banner shows the reason and the strike count and releases the hold through the one
+// admin-only database function, which also resets the strikes to 0.
+const isAutoHeld = (v) => !!v?.on_hold;
+function AutoHoldBanner({ session, venue, onUpdated, showStateNote }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const strikes = venue.timeout_strike_count || 0;
+
+  async function release() {
+    setBusy(true);
+    setError("");
+    try {
+      await rpc(session.token, "admin_release_auto_hold", { p_venue_id: venue.id });
+      logStatusChange(venue, "release_auto_hold");
+      const [row] = await sb(`/rest/v1/venues?id=eq.${venue.id}&select=*`, { token: session.token });
+      setConfirming(false);
+      setDone(true);
+      if (row) onUpdated(row);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done && !venue.on_hold) {
+    return (
+      <div className="border border-emerald-300 bg-emerald-50 rounded-lg p-4 mb-4" data-testid="auto-hold-released">
+        <p className="text-sm font-medium text-emerald-800">Hold released. Booking requests are open again.</p>
+      </div>
+    );
+  }
+  if (!venue.on_hold && strikes === 0) return null;
+  if (!venue.on_hold) {
+    return (
+      <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 mb-4" data-testid="auto-hold-strikes">
+        <p className="text-sm text-amber-800">
+          {strikes} missed response deadline{strikes === 1 ? "" : "s"}. The venue goes on hold automatically at 3.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-rose-300 bg-rose-50 rounded-lg p-4 mb-4" data-testid="auto-hold-banner">
+      <p className="text-sm font-semibold text-rose-800">Automatic hold: customers can't send new booking requests</p>
+      <p className="text-sm text-rose-800 mt-1">{venue.on_hold_reason || "Placed on hold automatically."}</p>
+      <p className="text-xs text-stone-600 mt-1">
+        Missed booking-response deadlines: {strikes} of 3.
+        {showStateNote ? " This is separate from the status below, which still shows \"Active\" until you change it." : ""}
+      </p>
+      {error && <p className="text-xs text-rose-700 mt-2">{error}</p>}
+      {confirming ? (
+        <div className="mt-3">
+          <p className="text-sm text-stone-800">
+            Release the automatic hold on {venue.name}? Customers will be able to send booking requests again. The
+            missed-deadline count resets to 0.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={release}
+              className="text-xs bg-stone-900 text-white rounded px-3 py-1.5 disabled:opacity-50"
+            >
+              {busy ? "Releasing…" : "Release hold"}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setConfirming(false)} className="text-xs text-stone-600 px-2 py-1.5">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="mt-3 text-xs bg-stone-900 text-white rounded px-3 py-1.5"
+        >
+          Release hold
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AutoHoldPill() {
+  return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-rose-100 text-rose-800">Auto hold</span>;
+}
+
 function VenueStatePill({ state }) {
   const cls =
     state === "deactivated"
@@ -487,9 +578,6 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   const approvePlain = () =>
     patch({ status: "approved", is_verified: false, approved_at: nowIso(), reviewed_at: nowIso() }, "approve_unverified");
 
-  const clearOnHold = () =>
-    patch({ on_hold: false, on_hold_reason: null, timeout_strike_count: 0 }, "clear_on_hold");
-
   // A rejected venue previously had no way back in — once a partner fixed
   // whatever got them rejected and resubmitted, the admin queue only showed
   // static "Re-opening a decision isn't available yet" text, with no button
@@ -570,30 +658,7 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         <StatusBadge status={venue.status} verified={venue.is_verified} />
       </div>
 
-      {(venue.on_hold || venue.timeout_strike_count > 0) && (
-        <div className={`border rounded-lg p-4 mb-4 ${venue.on_hold ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"}`}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className={`text-sm font-medium ${venue.on_hold ? "text-rose-800" : "text-amber-800"}`}>
-                {venue.on_hold ? "On hold — not accepting new booking requests" : "Missed response-window strikes"}
-              </p>
-              <p className="text-xs text-stone-500 mt-0.5">
-                {venue.timeout_strike_count || 0} timeout strike{venue.timeout_strike_count === 1 ? "" : "s"}
-                {venue.on_hold_reason ? ` · ${venue.on_hold_reason}` : ""}
-              </p>
-            </div>
-            {venue.on_hold && (
-              <button
-                onClick={clearOnHold}
-                disabled={busy}
-                className="text-xs bg-stone-900 text-white rounded px-3 py-1.5 disabled:opacity-50 shrink-0"
-              >
-                Clear hold
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} />
 
       {venue.status === "approved" && !venue.is_live && (
         <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
@@ -1604,9 +1669,11 @@ function PartnersAdmin({ session }) {
         return acc;
       }, {});
 
+  // An automatic hold counts as "On Hold" here even while venue_state still says active.
   const counts = venues.reduce(
     (acc, v) => {
-      acc[v.venue_state || "active"] = (acc[v.venue_state || "active"] || 0) + 1;
+      const key = isAutoHeld(v) && (v.venue_state || "active") === "active" ? "on_hold" : v.venue_state || "active";
+      acc[key] = (acc[key] || 0) + 1;
       return acc;
     },
     { active: 0, on_hold: 0, deactivated: 0 }
@@ -1693,7 +1760,10 @@ function PartnersAdmin({ session }) {
                     <td className="px-4 py-2.5 font-medium">{v.name}</td>
                     <td className="px-4 py-2.5 text-slate-600 hidden sm:table-cell">{v.city}</td>
                     <td className="px-4 py-2.5">
-                      <VenueStatePill state={v.venue_state || "active"} />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <VenueStatePill state={v.venue_state || "active"} />
+                        {isAutoHeld(v) && <AutoHoldPill />}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5">
                       <AvailabilityPill
@@ -1834,7 +1904,10 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
           <p className="text-slate-500 text-sm">{venue.venue_type} · {venue.city}</p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <VenueStatePill state={venue.venue_state || "active"} />
+          <div className="flex items-center gap-1.5">
+            <VenueStatePill state={venue.venue_state || "active"} />
+            {isAutoHeld(venue) && <AutoHoldPill />}
+          </div>
           <AvailabilityPill
             mode={venue.availability_mode || "live"}
             openTime={venue.auto_open_time}
@@ -1844,6 +1917,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       </div>
 
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
+
+      <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} showStateNote />
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Live status control</h3>

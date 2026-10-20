@@ -1629,6 +1629,35 @@ function RequestDetail({ session, booking: b, onBack, onRefresh }) {
 // Per-venue live-status control (Active / On Hold / Deactivated) plus booking
 // activity and per-package hold — the admin's single place to see what's
 // happening with an approved partner and step in when something's wrong.
+// Which count box a venue belongs to. The three boxes and the three filters both use this one function, so a
+// count and the list behind it can never differ. Groups are exclusive: deactivated first, then on hold
+// (admin on hold OR automatic hold), then live (active, published, not held). A venue that is approved but not
+// published yet (is_live false) is in none of the three groups; it only shows in the unfiltered list.
+const venueGroup = (v) => {
+  const state = v.venue_state || "active";
+  if (state === "deactivated") return "deactivated";
+  if (state === "on_hold" || isAutoHeld(v)) return "on_hold";
+  if (state === "active" && v.is_live === true) return "live";
+  return null;
+};
+
+function CountBox({ label, count, tone, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      data-testid={`count-${label.toLowerCase().replace(" ", "-")}`}
+      className={`text-left rounded-lg p-4 min-h-[76px] border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+        selected ? "bg-slate-900 border-slate-900 shadow-md" : "bg-white border-slate-200 hover:border-slate-400"
+      }`}
+    >
+      <p className={`text-xs ${selected ? "text-slate-300" : "text-slate-500"}`}>{label}</p>
+      <p className={`text-xl font-semibold mt-1 ${selected ? "text-white" : tone}`}>{count}</p>
+    </button>
+  );
+}
+
 function PartnersAdmin({ session }) {
   const [venues, setVenues] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -1636,6 +1665,7 @@ function PartnersAdmin({ session }) {
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState(null); // null | 'live' | 'on_hold' | 'deactivated'
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1669,18 +1699,21 @@ function PartnersAdmin({ session }) {
         return acc;
       }, {});
 
-  // An automatic hold counts as "On Hold" here even while venue_state still says active.
   const counts = venues.reduce(
     (acc, v) => {
-      const key = isAutoHeld(v) && (v.venue_state || "active") === "active" ? "on_hold" : v.venue_state || "active";
-      acc[key] = (acc[key] || 0) + 1;
+      const g = venueGroup(v);
+      if (g) acc[g] += 1;
       return acc;
     },
-    { active: 0, on_hold: 0, deactivated: 0 }
+    { live: 0, on_hold: 0, deactivated: 0 }
   );
+  const unpublished = venues.filter((v) => venueGroup(v) === null).length;
+  const toggleFilter = (key) => setFilter((f) => (f === key ? null : key));
+  const FILTER_LABEL = { live: "Live", on_hold: "On Hold", deactivated: "Deactivated" };
 
   const q = search.trim().toLowerCase();
   const list = venues.filter((v) => {
+    if (filter && venueGroup(v) !== filter) return false;
     if (!q) return true;
     return [v.name, v.city, v.owner_name].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
   });
@@ -1708,19 +1741,24 @@ function PartnersAdmin({ session }) {
 
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
 
-      <div className="grid grid-cols-3 gap-3 mb-4 max-w-lg">
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="text-xs text-slate-500">Live</p>
-          <p className="text-xl font-semibold mt-1 text-emerald-700">{counts.active}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="text-xs text-slate-500">On Hold</p>
-          <p className="text-xl font-semibold mt-1 text-amber-700">{counts.on_hold}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="text-xs text-slate-500">Deactivated</p>
-          <p className="text-xl font-semibold mt-1 text-rose-700">{counts.deactivated}</p>
-        </div>
+      <div className="grid grid-cols-3 gap-3 mb-2 max-w-lg" role="group" aria-label="Filter venues by status">
+        <CountBox label="Live" count={counts.live} tone="text-emerald-700" selected={filter === "live"} onClick={() => toggleFilter("live")} />
+        <CountBox label="On Hold" count={counts.on_hold} tone="text-amber-700" selected={filter === "on_hold"} onClick={() => toggleFilter("on_hold")} />
+        <CountBox label="Deactivated" count={counts.deactivated} tone="text-rose-700" selected={filter === "deactivated"} onClick={() => toggleFilter("deactivated")} />
+      </div>
+      <div className="flex items-center gap-3 mb-4 min-h-[20px] text-xs text-slate-500">
+        {filter ? (
+          <>
+            <span>Showing {FILTER_LABEL[filter]} venues only.</span>
+            <button type="button" onClick={() => setFilter(null)} className="underline underline-offset-2 text-slate-700">
+              Show all
+            </button>
+          </>
+        ) : unpublished > 0 ? (
+          <span>
+            {unpublished} approved venue{unpublished === 1 ? " is" : "s are"} not published yet, so {unpublished === 1 ? "it is" : "they are"} not in the Live count.
+          </span>
+        ) : null}
       </div>
 
       <input
@@ -1734,7 +1772,9 @@ function PartnersAdmin({ session }) {
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>
       ) : list.length === 0 ? (
-        <p className="text-slate-400 text-sm">No approved venues yet.</p>
+        <p className="text-slate-400 text-sm" data-testid="partners-empty">
+          {filter ? "No venues in this group." : "No approved venues yet."}
+        </p>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">

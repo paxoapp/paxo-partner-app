@@ -140,6 +140,10 @@ export default function CouponsAdmin({ session }) {
             Coupons that were already issued keep working until they expire. To start issuing again, raise or remove the budget cap and switch
             the first option on.
           </p>
+          <p className="text-xs text-slate-600 mt-1">
+            Once the cap has switched the offers off, they stay off until an admin turns them on again, even if returned coupons later lower
+            the committed total.
+          </p>
         </div>
       )}
 
@@ -203,7 +207,7 @@ export default function CouponsAdmin({ session }) {
               )}
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              When the total of all coupon discounts reaches the cap, new coupons and referral credits switch off automatically.
+              When the total of all coupon discounts reaches the cap, new coupons and referral credits switch off automatically. They stay off until an admin turns them on again, even if returned coupons lower the committed total.
               {s.budget_cap == null ? " No cap is set yet, so nothing switches off by itself." : ""}
             </p>
           </div>

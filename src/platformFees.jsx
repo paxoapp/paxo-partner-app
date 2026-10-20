@@ -112,11 +112,18 @@ export function FeeReceipt({ data }) {
       <Row k="Event" v={`${fmtDay(b.event_date)}${b.event_time ? ", " + String(b.event_time).slice(0, 5) : ""}`} />
       <Row k="Booking total" v={inr2(b.total_amount)} />
       <Row k="Deposit paid online by the customer (passed to the venue)" v={inr2(b.paid_online)} />
+      {Number(b.coupon_discount) > 0 && <Row k="PAXO coupon (paid by PAXO)" v={inr2(b.coupon_discount)} />}
       <Row k="Balance collected by the venue" v={inr2(b.to_collect_at_venue)} />
 
       <H>Platform fee</H>
       <Row k="Fee rate" v={`${Number(f.percent)}% of booking value ${inr2(f.base_amount)}`} />
-      <Row k="Platform fee amount" v={inr2(f.amount)} />
+      {Number(f.coupon_discount) > 0 && (
+        <>
+          <Row k="Platform fee before the coupon" v={inr2(f.amount_before_coupon)} />
+          <Row k="PAXO coupon (reduces your fee)" v={`−${inr2(f.coupon_discount)}`} />
+        </>
+      )}
+      <Row k={Number(f.coupon_discount) > 0 ? "Platform fee payable" : "Platform fee amount"} v={inr2(f.amount)} />
       <Row k="TDS deducted" v={inr2(f.tds_amount)} />
       <Row k="Total received" v={inr2(f.amount_paid)} strong />
 

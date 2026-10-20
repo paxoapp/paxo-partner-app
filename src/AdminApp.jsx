@@ -9,6 +9,7 @@ import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
+import CouponsAdmin from "./couponsAdmin";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -3356,6 +3357,7 @@ export default function AdminApp() {
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
             ["platformFees", "Platform fees"],
+            ["coupons", "Coupons"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -3400,6 +3402,8 @@ export default function AdminApp() {
           <Settlements session={session} />
         ) : section === "platformFees" ? (
           <PlatformFeesAdmin session={session} />
+        ) : section === "coupons" ? (
+          <CouponsAdmin session={session} />
         ) : selected ? (
           <VenueDetail
             session={session}

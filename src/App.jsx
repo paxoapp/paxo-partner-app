@@ -12,7 +12,7 @@ import PartnerFees from "./platformFees";
 import { oneHold, holdText, holdBadgeClass } from "./holds";
 import BookingPage, { CompletedList, checkinErrorText, checkinPhase, CHECKIN_EARLY_TEXT, CHECKIN_CLOSED_TEXT } from "./bookingPage";
 import { CompleteDialog, remainingBalance } from "./balanceNote";
-import { hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
+import { hasPaidDeposit, paidOnlineAmount, couponAmount } from "./bookingMoney";
 
 const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL || "https://www.mypaxo.in";
 
@@ -421,6 +421,10 @@ const PARTNER_FAQ_SECTIONS = [
       {
         q: "How much does PAXO take?",
         a: "A tiered platform fee on the deposit only, never on the full booking value: 5% up to ₹1,00,000, 7% from ₹1,00,000–2,00,000, 10% above ₹2,00,000. The remaining balance the customer pays you directly at the venue isn't touched by PAXO at all.",
+      },
+      {
+        q: "What if a customer uses a PAXO coupon?",
+        a: "PAXO pays for the coupon. You still receive your full amount. The coupon only reduces PAXO's platform fee for that booking, and your fee receipt shows it.",
       },
       {
         q: "When do I actually get paid?",
@@ -1027,7 +1031,7 @@ export default function App() {
         sb(`/rest/v1/booking_types?select=id,name`, { token }),
         // The partner view doesn't carry these; the base table does (RLS allows it).
         sb(
-          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_notes(method,amount,updated_at),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_deposit_holds(release_status,deposit_release_at,released_at),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at)`,
+          `/rest/v1/bookings?venue_id=eq.${venueId}&select=id,booking_ref,event_started_at,menu_finalized_at,cancellation_reason,cancelled_at,cancelled_by,booking_menu_selections(menu_item_id),booking_addon_requests(id,addon_name,addon_description,status,price,partner_notes),package_value,tax_amount,completed_at,booking_balance_notes(method,amount,updated_at),platform_fee_payments(id,fee_id,status,submitted_at,receipt_number),booking_deposit_holds(release_status,deposit_release_at,released_at),booking_commissions(id,kind,base_amount,percent,amount,status,due_at,debited_at,failure_reason,coupon_discount,amount_before_coupon),payments(payment_type,status,amount,paid_at,settlement_status,settled_at,settlement_notes,refund_amount,refund_percent,refund_status,refunded_at,coupon_discount)`,
           { token }
         ),
       ]);
@@ -3375,7 +3379,7 @@ export default function App() {
             <CompleteDialog
               b={cb}
               checkedIn={!!cb.event_started_at}
-              expected={remainingBalance(cb.total_amount, paidOnlineAmount(cb))}
+              expected={remainingBalance(cb.total_amount, paidOnlineAmount(cb) + couponAmount(cb))}
               busy={actionLoading === cb.id}
               error={completeError}
               onComplete={(note) => markCompleted(cb.id, note)}

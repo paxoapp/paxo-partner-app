@@ -33,6 +33,15 @@ export function paidOnlineAmount(booking) {
   );
 }
 
+// The PAXO coupon on this booking (paid by PAXO, not by the customer): counted with the online deposit so the balance at the venue is unchanged.
+export function couponAmount(booking) {
+  return round2(
+    (booking?.payments || [])
+      .filter((p) => p.status === "paid" && isDepositLike(p))
+      .reduce((sum, p) => sum + round2(Number(p.coupon_discount || 0)), 0)
+  );
+}
+
 export const hasPaidDeposit = (booking) =>
   (booking?.payments || []).some((p) => p.status === "paid" && isDepositLike(p));
 
@@ -75,7 +84,8 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
   const detailed = paid && b.package_value != null;
   const commission = detailed ? commissionOf(b) : null;
   const paidOnline = paidOnlineAmount(b);
-  const toCollect = Math.max(0, round2(Number(b.total_amount || 0) - paidOnline));
+  const coupon = couponAmount(b);
+  const toCollect = Math.max(0, round2(Number(b.total_amount || 0) - paidOnline - coupon));
 
   return (
     <>
@@ -90,6 +100,7 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
               )}
               <Row k="Booking total" v={formatRupees(b.total_amount)} strong />
               <Row k="Paid online (deposit)" v={formatRupees(paidOnline)} />
+              {coupon > 0 && <Row k="PAXO coupon (paid by PAXO)" v={formatRupees(coupon)} />}
               <Row k="To collect at the venue" v={formatRupees(toCollect)} />
             </>
           ) : (
@@ -126,6 +137,12 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
           <dl className="text-sm flex flex-col gap-1.5">
             <Row k="Booking value" v={formatRupees(commission.base_amount)} />
             <Row k="Fee rate" v={`${formatPercent(commission.percent)}%`} />
+            {Number(commission.coupon_discount) > 0 && (
+              <>
+                <Row k="Platform fee before the coupon" v={formatRupees(commission.amount_before_coupon)} />
+                <Row k="PAXO coupon (reduces your fee)" v={`−${formatRupees(commission.coupon_discount)}`} />
+              </>
+            )}
             <Row k="Platform fee" v={formatRupees(commission.amount)} strong />
             <Row k="Status" v={commissionStatusText(commission)} />
           </dl>

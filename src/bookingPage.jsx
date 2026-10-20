@@ -1,6 +1,6 @@
 import { rpc } from "./supabase";
 import { formatRupees, round2 } from "./tax";
-import { commissionOf, hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
+import { commissionOf, couponAmount, hasPaidDeposit, paidOnlineAmount } from "./bookingMoney";
 import { feeState, fmtDay, fmtIST, StateChip } from "./platformFees";
 import { oneHold, holdText } from "./holds";
 import { BalanceNoteSection, noteOf, noteLine, remainingBalance } from "./balanceNote";
@@ -117,7 +117,8 @@ export function BookingPageView({ b, menuNode, checkin, onSaveNote, onClose, onG
   const note = noteOf(b);
   const paid = hasPaidDeposit(b);
   const paidOnline = paidOnlineAmount(b);
-  const expected = Math.max(0, round2(Number(b.total_amount || 0) - paidOnline));
+  const coupon = couponAmount(b);
+  const expected = Math.max(0, round2(Number(b.total_amount || 0) - paidOnline - coupon));
   const depPay = pays.filter((p) => p.status === "paid" && (p.payment_type === "deposit" || p.payment_type === "full"))
     .sort((a, c) => new Date(a.paid_at) - new Date(c.paid_at))[0];
   const detailed = paid && b.package_value != null;
@@ -160,6 +161,7 @@ export function BookingPageView({ b, menuNode, checkin, onSaveNote, onClose, onG
               <Row k="Paid online (deposit)" v={`${formatRupees(paidOnline)}${depPay?.paid_at ? ` · ${fmtIST(depPay.paid_at)}` : ""}`} />
             )}
             {oneHold(b) && holdText(oneHold(b)) && <Row k="Deposit" v={holdText(oneHold(b))} />}
+            {coupon > 0 && <Row k="PAXO coupon (paid by PAXO)" v={formatRupees(coupon)} />}
             {paid && <Row k="Remaining balance (venue collects)" v={formatRupees(expected)} />}
             {note && <Row k="Balance collected (your record)" v={noteLine(note)} />}
           </div>

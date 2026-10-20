@@ -17,6 +17,7 @@ const STATUS_TONE = {
   paid: "bg-sky-100 text-sky-800",
   completed: "bg-emerald-100 text-emerald-800",
   returned: "bg-amber-100 text-amber-800",
+  forfeited: "bg-red-100 text-red-800",
   pending: "bg-sky-100 text-sky-800",
   capped: "bg-amber-100 text-amber-800",
 };
@@ -142,7 +143,7 @@ export default function CouponsAdmin({ session }) {
           </p>
           <p className="text-xs text-slate-600 mt-1">
             Once the cap has switched the offers off, they stay off until an admin turns them on again, even if returned coupons later lower
-            the committed total.
+            the committed total. A coupon that a customer forfeits by cancelling after paying is gone for good, so it no longer counts toward the cap.
           </p>
         </div>
       )}
@@ -207,7 +208,7 @@ export default function CouponsAdmin({ session }) {
               )}
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              When the total of all coupon discounts reaches the cap, new coupons and referral credits switch off automatically. They stay off until an admin turns them on again, even if returned coupons lower the committed total.
+              When the total of all coupon discounts reaches the cap, new coupons and referral credits switch off automatically. They stay off until an admin turns them on again, even if returned coupons lower the committed total. A coupon that a customer forfeits by cancelling after paying is gone for good, so it no longer counts toward the cap.
               {s.budget_cap == null ? " No cap is set yet, so nothing switches off by itself." : ""}
             </p>
           </div>

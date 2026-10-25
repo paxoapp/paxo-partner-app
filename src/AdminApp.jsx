@@ -9,6 +9,7 @@ import { REJECTION_REASONS, VENUE_STATUS_LABELS } from "./onboarding";
 import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
+import ManagedVenuesAdmin from "./managedVenues";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -603,7 +604,6 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
           done: shadowChecklist.publishedPackages >= 2,
           label: `At least 2 published packages (${shadowChecklist.publishedPackages})`,
         },
-        { done: !!venue.gst_verified, label: "GST verified" },
       ]
     : [];
   const allChecklistItemsDone = checklistItems.length > 0 && checklistItems.every((i) => i.done);
@@ -654,6 +654,7 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
         <div>
           <h2 className="text-2xl font-semibold">{venue.name}</h2>
           <p className="text-stone-500 text-sm">{venue.venue_type} · {venue.city}</p>
+          {venue.managed_by_paxo && <p className="text-xs text-sky-700 mt-1">Managed by PAXO — manage it from the “Managed venues” tab</p>}
         </div>
         <StatusBadge status={venue.status} verified={venue.is_verified} />
       </div>
@@ -2158,7 +2159,7 @@ function CustomersAdmin({ session }) {
     try {
       const [p, b] = await Promise.all([
         sb(
-          "/rest/v1/profiles?select=id,full_name,phone,email,no_show_count,rating_avg,created_at,account_state,state_reason&order=created_at.desc&limit=5000",
+          "/rest/v1/profiles?select=id,full_name,phone,email,no_show_count,rating_avg,created_at,account_state,state_reason&is_managed_login=eq.false&order=created_at.desc&limit=5000",
           { token: session.token }
         ),
         sb("/rest/v1/bookings?select=id,customer_id,status&limit=5000", { token: session.token }),
@@ -2988,7 +2989,7 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
           "/rest/v1/payments?status=eq.paid&select=amount,refund_amount,gateway_fee_deducted,settlement_status&limit=5000",
           { token: session.token }
         ),
-        sb("/rest/v1/profiles?select=id", { token: session.token }),
+        sb("/rest/v1/profiles?select=id&is_managed_login=eq.false", { token: session.token }),
         sb("/rest/v1/booking_commissions?kind=eq.commission&select=amount,status&limit=5000", { token: session.token }),
         sb("/rest/v1/admin_alerts?resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
       ]);
@@ -3356,6 +3357,7 @@ export default function AdminApp() {
             ["addons", "Add-Ons"],
             ["settlements", "Settlements"],
             ["platformFees", "Platform fees"],
+            ["managed", "Managed venues"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -3400,6 +3402,8 @@ export default function AdminApp() {
           <Settlements session={session} />
         ) : section === "platformFees" ? (
           <PlatformFeesAdmin session={session} />
+        ) : section === "managed" ? (
+          <ManagedVenuesAdmin session={session} />
         ) : selected ? (
           <VenueDetail
             session={session}

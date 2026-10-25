@@ -353,7 +353,6 @@ function ShadowModeBanner({ venue, checklist }) {
     { done: checklist.photos >= 3, label: "Upload at least 3 venue photos" },
     { done: checklist.menuItems >= 1, label: "Add your menu" },
     { done: checklist.publishedPackages >= 2, label: "Publish at least 2 packages" },
-    { done: !!venue.gst_verified, label: "Get your GST documents verified by PAXO" },
   ];
   const allDone = items.every((i) => i.done);
   return (
@@ -2517,7 +2516,7 @@ export default function App() {
   }
 
   const hasAcceptedFinalAgreement = venue?.agreement_acceptances?.some((a) => a.checkpoint === "final_agreement");
-  if (session && venue && venue.status === "approved" && !hasAcceptedFinalAgreement) {
+  if (session && venue && venue.status === "approved" && !venue.managed_by_paxo && !hasAcceptedFinalAgreement) {
     return (
       <PartnerAgreementScreen
         session={session}

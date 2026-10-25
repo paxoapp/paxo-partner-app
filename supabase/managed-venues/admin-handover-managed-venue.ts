@@ -109,6 +109,11 @@ Deno.serve(async (req: Request) => {
       const { data: link, error: lErr } = await svc.auth.admin.generateLink({ type: "recovery", email: newEmail, options: { redirectTo: PARTNER_URL } });
       const actionLink = link?.properties?.action_link;
       if (lErr || !actionLink) return json({ error: "Handed over, but the set-password link could not be made. Press the button again." }, 502);
+      // Supabase silently swaps in its default page when the redirect address is not on the Auth allow list. Never mail
+      // the owner a link that would not open the partner app: stop here (retry-safe) and say what to fix.
+      let redirectOk = false;
+      try { redirectOk = new URL(actionLink).searchParams.get("redirect_to")?.replace(/\/+$/, "") === PARTNER_URL; } catch (_e) { redirectOk = false; }
+      if (!redirectOk) return json({ error: "Handed over, but the set-password link does not open partner.mypaxo.in. Add https://partner.mypaxo.in to Supabase Auth > URL Configuration > Redirect URLs, then press the button again. No email was sent." }, 502);
       const mail = await fetch(`${SUPABASE_URL}/functions/v1/send-transactional-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-webhook-secret": EMAIL_WEBHOOK_SECRET },

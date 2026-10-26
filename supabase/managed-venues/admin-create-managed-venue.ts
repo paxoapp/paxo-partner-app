@@ -29,6 +29,10 @@ function randomPassword(): string {
 }
 const isUuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const clean = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+// Strict on purpose: letters, digits and . _ % + - only before the @, a real domain after it. No spaces, no ":" (so
+// "mailto:x@y.com" is refused), no "<", no ",". Callers trim and lower-case first.
+const EMAIL_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,62}[A-Za-z0-9])?@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$/;
+const isEmail = (v: string) => v.length <= 200 && !v.includes("..") && EMAIL_RE.test(v);
 const slugOf = (name: string) => {
   const s = name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30);
   return s || "venue" + Math.random().toString(36).slice(2, 6);
@@ -61,7 +65,7 @@ Deno.serve(async (req: Request) => {
     if (!city) return json({ error: "Enter the city." }, 400);
     if (!clean(b.contact_person_name, 120)) return json({ error: "Enter the contact person." }, 400);
     if (contactPhone.replace(/\D/g, "").length < 10) return json({ error: "Enter a valid contact phone number." }, 400);
-    if (ownerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(ownerEmail)) return json({ error: "The owner email does not look right." }, 400);
+    if (ownerEmail && !isEmail(ownerEmail)) return json({ error: "Enter a valid email (letters, digits and . _ + - only, no spaces and no \"mailto:\")." }, 400);
     if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 100000)) return json({ error: "Guest capacity must be a whole number." }, 400);
     const maps = clean(b.google_maps_url, 500);
     if (maps && !/^https?:\/\//i.test(maps)) return json({ error: "The Google Maps link must start with http:// or https://" }, 400);

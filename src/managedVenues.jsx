@@ -28,6 +28,11 @@ async function callFn(slug, token, body) {
   return data;
 }
 
+// Same rule as the server (the server decides; this only saves a round trip).
+const EMAIL_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,62}[A-Za-z0-9])?@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$/;
+const isEmail = (v) => v.length <= 200 && !v.includes("..") && EMAIL_RE.test(v);
+const EMAIL_HELP = 'Enter a valid email: letters, digits and . _ + - only, no spaces, no "mailto:".';
+
 const newRequestId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID()
@@ -94,6 +99,21 @@ function CredentialsBox({ title, creds, onClose }) {
   );
 }
 
+// Module-level on purpose: a component defined INSIDE AddVenueForm is a new component on every keystroke, so React
+// throws the old input away and the cursor is lost after each character.
+function Field({ label, required, hint, value, onChange, children }) {
+  return (
+    <label className="block text-sm">
+      <span className="block mb-1 font-medium">
+        {label}
+        {required && <span className="text-red-600"> *</span>}
+      </span>
+      {children || <input value={value} onChange={onChange} className="w-full border border-slate-300 rounded px-3 py-2" />}
+      {hint && <span className="block text-xs text-slate-500 mt-1">{hint}</span>}
+    </label>
+  );
+}
+
 function AddVenueForm({ session, onDone, onCancel }) {
   const [f, setF] = useState(EMPTY);
   const [requestId] = useState(newRequestId);
@@ -105,9 +125,11 @@ function AddVenueForm({ session, onDone, onCancel }) {
   async function submit(e, allowDuplicate = false) {
     e?.preventDefault();
     setError("");
+    const ownerEmail = f.owner_contact_email.trim().toLowerCase();
+    if (ownerEmail && !isEmail(ownerEmail)) return setError(EMAIL_HELP);
     setBusy(true);
     try {
-      const r = await callFn("admin-create-managed-venue", session.token, { ...f, request_id: requestId, allow_duplicate: allowDuplicate });
+      const r = await callFn("admin-create-managed-venue", session.token, { ...f, owner_contact_email: ownerEmail, request_id: requestId, allow_duplicate: allowDuplicate });
       onDone(r);
     } catch (err) {
       if (err.status === 409 && err.data?.duplicate) setDup(true);
@@ -117,17 +139,6 @@ function AddVenueForm({ session, onDone, onCancel }) {
     }
   }
 
-  const Field = ({ k, label, required, children, hint }) => (
-    <label className="block text-sm">
-      <span className="block mb-1 font-medium">
-        {label}
-        {required && <span className="text-red-600"> *</span>}
-      </span>
-      {children || <input value={f[k]} onChange={set(k)} className="w-full border border-slate-300 rounded px-3 py-2" />}
-      {hint && <span className="block text-xs text-slate-500 mt-1">{hint}</span>}
-    </label>
-  );
-
   return (
     <form onSubmit={submit} className="bg-white border border-slate-200 rounded-lg p-5 mb-6" data-testid="add-venue-form">
       <h2 className="text-lg font-semibold mb-1">Add a venue (managed by PAXO)</h2>
@@ -135,7 +146,7 @@ function AddVenueForm({ session, onDone, onCancel }) {
         PAXO creates the venue's login and runs it until you hand the dashboard over to the owner. The owner receives nothing before then.
       </p>
       <div className="grid sm:grid-cols-2 gap-4">
-        <Field k="name" label="Venue name" required />
+        <Field value={f.name} onChange={set("name")} label="Venue name" required />
         <Field label="Venue type" required>
           <select value={f.venue_type} onChange={set("venue_type")} className="w-full border border-slate-300 rounded px-3 py-2 bg-white">
             <option value="">Select…</option>
@@ -146,23 +157,23 @@ function AddVenueForm({ session, onDone, onCancel }) {
             ))}
           </select>
         </Field>
-        <Field k="city" label="City" required />
-        <Field k="area" label="Area" />
+        <Field value={f.city} onChange={set("city")} label="City" required />
+        <Field value={f.area} onChange={set("area")} label="Area" />
         <div className="sm:col-span-2">
-          <Field k="address" label="Address" />
+          <Field value={f.address} onChange={set("address")} label="Address" />
         </div>
         <div className="sm:col-span-2">
-          <Field k="google_maps_url" label="Google Maps link (optional)" />
+          <Field value={f.google_maps_url} onChange={set("google_maps_url")} label="Google Maps link (optional)" />
         </div>
-        <Field k="guest_capacity" label="Guest capacity" />
-        <Field k="contact_person_name" label="Contact person" required />
-        <Field k="contact_phone" label="Contact phone" required />
+        <Field value={f.guest_capacity} onChange={set("guest_capacity")} label="Guest capacity" />
+        <Field value={f.contact_person_name} onChange={set("contact_person_name")} label="Contact person" required />
+        <Field value={f.contact_phone} onChange={set("contact_phone")} label="Contact phone" required />
         <Field
-          k="owner_contact_email"
+          value={f.owner_contact_email} onChange={set("owner_contact_email")}
           label="Owner email (private)"
           hint="Stored only. Nothing is sent to it until you press “Send dashboard to owner”."
         />
-        <Field k="gst_no" label="GST number (optional)" hint="FSSAI and liquor documents can be added later from the partner dashboard." />
+        <Field value={f.gst_no} onChange={set("gst_no")} label="GST number (optional)" hint="FSSAI and liquor documents can be added later from the partner dashboard." />
       </div>
       {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       <div className="flex gap-3 mt-4 items-center">
@@ -184,6 +195,7 @@ function AddVenueForm({ session, onDone, onCancel }) {
 
 function HandoverBox({ session, venue, onClose, onDone }) {
   const [email, setEmail] = useState(venue.owner_contact_email || "");
+  const cleanEmail = email.trim().toLowerCase();
   const [step, setStep] = useState("edit"); // 'edit' | 'confirm'
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -191,7 +203,7 @@ function HandoverBox({ session, venue, onClose, onDone }) {
     setBusy(true);
     setError("");
     try {
-      await callFn("admin-handover-managed-venue", session.token, { venue_id: venue.id, owner_email: email.trim(), confirm: true });
+      await callFn("admin-handover-managed-venue", session.token, { venue_id: venue.id, owner_email: cleanEmail, confirm: true });
       onDone();
     } catch (e) {
       setError(e.message);
@@ -211,7 +223,7 @@ function HandoverBox({ session, venue, onClose, onDone }) {
           </label>
           {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
           <div className="flex gap-3 mt-3">
-            <button disabled={!email.trim()} onClick={() => setStep("confirm")} className="bg-slate-900 text-white rounded px-3 py-1.5 text-sm disabled:opacity-50">
+            <button disabled={!cleanEmail} onClick={() => (isEmail(cleanEmail) ? (setError(""), setStep("confirm")) : setError(EMAIL_HELP))} className="bg-slate-900 text-white rounded px-3 py-1.5 text-sm disabled:opacity-50">
               Continue
             </button>
             <button onClick={onClose} className="text-sm text-slate-500">
@@ -222,7 +234,7 @@ function HandoverBox({ session, venue, onClose, onDone }) {
       ) : (
         <>
           <p className="text-sm mt-2">
-            This moves the venue's login to <strong>{email.trim()}</strong>, switches off PAXO management, ends the PAXO login's sessions, and emails the
+            This moves the venue's login to <strong>{cleanEmail}</strong>, switches off PAXO management, ends the PAXO login's sessions, and emails the
             owner a link to set their password. PAXO can no longer use the managed login afterwards. Continue?
           </p>
           <div className="flex gap-3 mt-3">

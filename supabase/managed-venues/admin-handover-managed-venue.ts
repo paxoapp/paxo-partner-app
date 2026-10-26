@@ -28,7 +28,10 @@ function randomPassword(): string {
   return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 const isUuid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+// Strict on purpose: letters, digits and . _ % + - only before the @, a real domain after it. No spaces, no ":" (so
+// "mailto:x@y.com" is refused), no "<", no ",". Callers trim and lower-case first.
+const EMAIL_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,62}[A-Za-z0-9])?@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$/;
+const isEmail = (v: string) => v.length <= 200 && !v.includes("..") && EMAIL_RE.test(v);
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -60,7 +63,7 @@ Deno.serve(async (req: Request) => {
     if (!audit) {
       // a brand-new handover: every refusal happens here, before anything is changed
       if (!venue.managed_by_paxo) return json({ error: "This venue is not managed by PAXO." }, 409);
-      if (!bodyEmail || bodyEmail.length > 200 || !EMAIL_RE.test(bodyEmail)) return json({ error: "Enter a valid owner email." }, 400);
+      if (!isEmail(bodyEmail)) return json({ error: "Enter a valid email (letters, digits and . _ + - only, no spaces and no \"mailto:\")." }, 400);
       if (bodyEmail.startsWith("paxoapp.in+")) return json({ error: "That is a PAXO address. Enter the owner's own email." }, 400);
       const { data: used } = await svc.rpc("managed_email_in_use", { p_email: bodyEmail, p_except: pu.id });
       if (used) return json({ error: "That email already belongs to another account." }, 409);
@@ -82,15 +85,22 @@ Deno.serve(async (req: Request) => {
     }
     const newEmail: string = audit!.new_email;
 
-    // step A: the login's email + an unknown random password, in ONE auth call (no email is sent by Supabase)
+    // step A: the login's email + an unknown random password, in ONE auth call (no email is sent by Supabase).
+    // If this step fails nothing has changed yet, so the record is marked "failed" and the admin can retry with another
+    // address. The update only applies while the record is still "started", so a double click cannot undo a handover
+    // that the other click has already moved on.
+    const failBeforeChange = async (reason: string) => {
+      await svc.from("managed_venue_audit").update({ status: "failed", error: reason, updated_at: new Date().toISOString() })
+        .eq("id", audit!.id).eq("status", "started");
+    };
     if (audit!.status === "started") {
       const { data: cur } = await svc.auth.admin.getUserById(pu.id);
-      if (!cur?.user) return json({ error: "The login could not be found." }, 500);
+      if (!cur?.user) { await failBeforeChange("login not found"); return json({ error: "The login could not be found." }, 500); }
       if ((cur.user.email ?? "").toLowerCase() !== newEmail) {
         const { data: used } = await svc.rpc("managed_email_in_use", { p_email: newEmail, p_except: pu.id });
-        if (used) return json({ error: "That email already belongs to another account." }, 409);
+        if (used) { await failBeforeChange("email already in use"); return json({ error: "That email already belongs to another account." }, 409); }
         const { error: uErr } = await svc.auth.admin.updateUserById(pu.id, { email: newEmail, email_confirm: true, password: randomPassword() });
-        if (uErr) return json({ error: "Could not change the login email. Nothing else was changed; you can retry." }, 500);
+        if (uErr) { await failBeforeChange("login email change failed"); return json({ error: "Could not change the login email. Nothing was changed. Check the address and try again." }, 500); }
       }
       await svc.from("managed_venue_audit").update({ status: "email_changed", updated_at: new Date().toISOString() }).eq("id", audit!.id);
       audit = { ...audit!, status: "email_changed" };

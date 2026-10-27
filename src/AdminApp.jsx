@@ -10,6 +10,7 @@ import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
 import ManagedVenuesAdmin from "./managedVenues";
+import LeadsAdmin from "./leadsAdmin";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -3358,6 +3359,7 @@ export default function AdminApp() {
             ["settlements", "Settlements"],
             ["platformFees", "Platform fees"],
             ["managed", "Managed venues"],
+            ["leads", "Leads"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -3404,6 +3406,8 @@ export default function AdminApp() {
           <PlatformFeesAdmin session={session} />
         ) : section === "managed" ? (
           <ManagedVenuesAdmin session={session} />
+        ) : section === "leads" ? (
+          <LeadsAdmin session={session} />
         ) : selected ? (
           <VenueDetail
             session={session}

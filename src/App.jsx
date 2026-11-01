@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Inbox, CalendarClock, UtensilsCrossed, User, Wallet, IndianRupee } from "lucide-react";
 import SocialLinks from "./SocialLinks";
-import { sb, rpc, SUPABASE_URL, uploadVenuePhoto, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
+import { sb, rpc, SUPABASE_URL, deleteVenuePhoto, uploadAvatar, saveSession, loadSession, clearSession } from "./supabase";
 
 const PARTNER_SESSION_KEY = "paxo_partner_session";
 import { VenueSubmissionForm, VenueStatusScreen, PartnerAgreementScreen } from "./onboarding";
 import OtpVerification from "./OtpVerification";
+import VenuePhotoUploader from "./VenuePhotoUploader";
 import PackageTaxFields from "./PackageTaxFields";
 import { findTaxRate, validatePackageTax, alcoholAmountToSave, formatRupees, round2 } from "./tax";
 import PartnerFees from "./platformFees";
@@ -620,7 +621,6 @@ export default function App() {
   const [venuePhotos, setVenuePhotos] = useState([]);
   const [venuePhotosLoading, setVenuePhotosLoading] = useState(false);
   const [venuePhotoError, setVenuePhotoError] = useState("");
-  const [venuePhotoUploading, setVenuePhotoUploading] = useState(false);
   const [venuePhotoDeletingId, setVenuePhotoDeletingId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
@@ -1075,14 +1075,17 @@ export default function App() {
     }
   }, []);
 
+  // Several photo uploads can finish close together, each reloading the list; only the latest reload is applied.
+  const venuePhotosLoadSeq = useRef(0);
   const loadVenuePhotos = useCallback(async (token, venueId) => {
+    const seq = ++venuePhotosLoadSeq.current;
     setVenuePhotosLoading(true);
     try {
       const data = await sb(
         `/rest/v1/venue_images?venue_id=eq.${venueId}&select=*&order=sort_order.asc`,
         { token }
       );
-      setVenuePhotos(data);
+      if (seq === venuePhotosLoadSeq.current) setVenuePhotos(data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -1570,43 +1573,7 @@ export default function App() {
   }
 
   const VENUE_PHOTOS_LIMIT = 8;
-  const VENUE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
   const VENUE_PHOTOS_PUBLIC_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/venue-photos/`;
-
-  async function handleVenuePhotoUpload(file) {
-    setVenuePhotoError("");
-    if (!file) return;
-    if (!file.type?.startsWith("image/")) {
-      setVenuePhotoError("Please choose an image file.");
-      return;
-    }
-    if (file.size > VENUE_PHOTO_MAX_BYTES) {
-      setVenuePhotoError("Image is larger than 5MB — please choose a smaller file.");
-      return;
-    }
-    if (venuePhotos.length >= VENUE_PHOTOS_LIMIT) {
-      setVenuePhotoError(`You can upload up to ${VENUE_PHOTOS_LIMIT} photos.`);
-      return;
-    }
-    setVenuePhotoUploading(true);
-    try {
-      const imageUrl = await uploadVenuePhoto(session.token, partnerVenue.venue_id, file);
-      const nextSortOrder = venuePhotos.length
-        ? Math.max(...venuePhotos.map((p) => p.sort_order)) + 1
-        : 0;
-      await sb("/rest/v1/venue_images", {
-        method: "POST",
-        token: session.token,
-        prefer: "return=minimal",
-        body: { venue_id: partnerVenue.venue_id, image_url: imageUrl, sort_order: nextSortOrder },
-      });
-      await loadVenuePhotos(session.token, partnerVenue.venue_id);
-    } catch (e) {
-      setVenuePhotoError(e.message);
-    } finally {
-      setVenuePhotoUploading(false);
-    }
-  }
 
   async function removeVenuePhoto(photo) {
     setVenuePhotoError("");
@@ -4750,29 +4717,13 @@ export default function App() {
 
               {venuePhotosLoading && <p className="text-stone-400 text-xs mb-3">Loading photos…</p>}
 
-              <label
-                className={`inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded ${
-                  venuePhotos.length >= VENUE_PHOTOS_LIMIT || venuePhotoUploading
-                    ? "bg-stone-100 text-stone-400 cursor-not-allowed"
-                    : "bg-accent text-[#170D0B] cursor-pointer"
-                }`}
-              >
-                {venuePhotoUploading ? "Uploading…" : "Add photo"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={venuePhotos.length >= VENUE_PHOTOS_LIMIT || venuePhotoUploading}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) handleVenuePhotoUpload(file);
-                  }}
-                />
-              </label>
-              {venuePhotos.length >= VENUE_PHOTOS_LIMIT && (
-                <p className="text-stone-400 text-xs mt-2">Up to {VENUE_PHOTOS_LIMIT} photos.</p>
-              )}
+              <VenuePhotoUploader
+                token={session.token}
+                venueId={partnerVenue.venue_id}
+                photos={venuePhotos}
+                limit={VENUE_PHOTOS_LIMIT}
+                onUploaded={() => loadVenuePhotos(session.token, partnerVenue.venue_id)}
+              />
             </div>
 
             <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">

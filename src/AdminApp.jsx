@@ -10,6 +10,7 @@ import StatusStepper from "./StatusStepper";
 import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
 import ManagedVenuesAdmin from "./managedVenues";
+import { NegotiationToggle, NegotiableTag } from "./negotiation";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -660,6 +661,8 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
       </div>
 
       <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} />
+
+      <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
 
       {venue.status === "approved" && !venue.is_live && (
         <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
@@ -1798,7 +1801,7 @@ function PartnersAdmin({ session }) {
                     className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
                     onClick={() => setSelectedId(v.id)}
                   >
-                    <td className="px-4 py-2.5 font-medium">{v.name}</td>
+                    <td className="px-4 py-2.5 font-medium">{v.name}{v.open_to_negotiation && <NegotiableTag />}</td>
                     <td className="px-4 py-2.5 text-slate-600 hidden sm:table-cell">{v.city}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -1960,6 +1963,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       {error && <p className="text-rose-600 text-sm mb-3">{error}</p>}
 
       <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} showStateNote />
+
+      <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Live status control</h3>
@@ -3464,7 +3469,7 @@ export default function AdminApp() {
                         onClick={() => setSelectedId(v.id)}
                         className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
                       >
-                        <td className="px-4 py-2.5 font-medium">{v.name}</td>
+                        <td className="px-4 py-2.5 font-medium">{v.name}{v.open_to_negotiation && <NegotiableTag />}</td>
                         <td className="px-4 py-2.5 hidden sm:table-cell text-slate-600">{v.owner_name || "—"}</td>
                         <td className="px-4 py-2.5 hidden md:table-cell text-slate-600">{v.city}</td>
                         <td className="px-4 py-2.5 hidden md:table-cell text-slate-600">{fmtDate(v.submitted_at)}</td>

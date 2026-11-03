@@ -120,6 +120,7 @@ const BEVERAGE_KINDS = [
   "vodka",
   "rum",
   "gin",
+  "spirits",
   "classic_cocktails",
   "mocktails",
   "soft_beverages",
@@ -144,6 +145,7 @@ const BEVERAGE_QUOTA_CATEGORIES = [
   ["vodka", "Vodka", 1],
   ["rum", "Rum", 1],
   ["gin", "Gin", 1],
+  ["spirits", "Spirits", 1],
   ["classic_cocktails", "Classic Cocktails", 1],
   ["mocktails", "Mocktails", 1],
   ["soft_beverages", "Soft Beverages", 1],
@@ -155,7 +157,7 @@ const QUOTA_CATEGORIES = [...FOOD_QUOTA_CATEGORIES, ...BEVERAGE_QUOTA_CATEGORIES
 // the partner picks which specific menu_items (brands) back the quota, written
 // to package_item_pool. classic_cocktails / mocktails / soft_beverages are NOT
 // here — they stay free-flow, described via the Inclusions text field.
-const POOL_QUOTA_KINDS = ["single_malt", "wine", "beer", "whisky", "vodka", "rum", "gin"];
+const POOL_QUOTA_KINDS = ["single_malt", "wine", "beer", "whisky", "vodka", "rum", "gin", "spirits"];
 
 // [singular, plural] per quota category kind, for "1 Dessert" vs "2 Desserts".
 const QUOTA_LABEL_FORMS = {
@@ -170,6 +172,7 @@ const QUOTA_LABEL_FORMS = {
   vodka: ["Vodka", "Vodkas"],
   rum: ["Rum", "Rums"],
   gin: ["Gin", "Gins"],
+  spirits: ["Spirits", "Spirits"],
   classic_cocktails: ["Classic Cocktail", "Classic Cocktails"],
   mocktails: ["Mocktail", "Mocktails"],
   soft_beverages: ["Soft Beverage", "Soft Beverages"],
@@ -716,6 +719,7 @@ export default function App() {
     ["vodka", "Vodka"],
     ["rum", "Rum"],
     ["gin", "Gin"],
+    ["spirits", "Spirits"],
     ["classic_cocktails", "Classic Cocktails"],
     ["mocktails", "Mocktails"],
     ["soft_beverages", "Soft Beverages"],

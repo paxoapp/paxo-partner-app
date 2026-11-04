@@ -15,6 +15,9 @@ const STATUS_TONE = {
   cancelled: "bg-rose-100 text-rose-700",
 };
 const FILTERS = [["all", "All"], ["draft", "Draft"], ["published", "Published"], ["confirmed", "Confirmed"], ["closed", "Closed"], ["completed", "Completed"], ["cancelled", "Cancelled"]];
+// Suggestions only: the admin can type anything. Customers filter the Parties list by these two values and the venue's city.
+const PACKAGE_OPTIONS = ["Standard", "Premium", "Unlimited food + drinks", "Unlimited drinks only", "Veg", "Non-veg"];
+const LIQUOR_OPTIONS = ["IMFL", "Premium liquor", "Beer & wine", "Cocktails", "No alcohol"];
 const IDEAS = ["Halloween Night", "New Year Eve", "Christmas", "Get Together", "Let's Fun", "Kitty Party", "Weekend"];
 
 const hhmm = (t) => (t || "").slice(0, 5);
@@ -257,10 +260,12 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
           <input type="time" className={inputCls} value={f.end_time} onChange={set("end_time")} disabled={locked} data-testid="party-end" />
         </Field>
         <Field label="Package type">
-          <input className={inputCls} value={f.package_type} onChange={set("package_type")} placeholder="e.g. Unlimited food + drinks" />
+          <input className={inputCls} list="party-package-options" value={f.package_type} onChange={set("package_type")} placeholder="Pick or type, e.g. Premium" data-testid="party-package" />
+          <datalist id="party-package-options">{PACKAGE_OPTIONS.map((o) => <option key={o} value={o} />)}</datalist>
         </Field>
         <Field label="Liquor type">
-          <input className={inputCls} value={f.liquor_type} onChange={set("liquor_type")} placeholder="e.g. IMFL" />
+          <input className={inputCls} list="party-liquor-options" value={f.liquor_type} onChange={set("liquor_type")} placeholder="Pick or type, e.g. IMFL" data-testid="party-liquor" />
+          <datalist id="party-liquor-options">{LIQUOR_OPTIONS.map((o) => <option key={o} value={o} />)}</datalist>
         </Field>
         <Field label="Price per person (₹)">
           <input type="number" min="1" className={inputCls} value={f.price_per_person} onChange={set("price_per_person")} disabled={locked} data-testid="party-price" />

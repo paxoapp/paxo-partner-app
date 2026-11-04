@@ -46,6 +46,7 @@ const emptyForm = {
   title: "", description: "", venue_id: "", party_date: "", start_time: "20:00", end_time: "01:00", package_type: "", liquor_type: "",
   price_per_person: "", male_seats: "", female_seats: "", min_paid_seats: "30", closes_local: "", max_seats_per_booking: "10",
   cover_photo_url: "", terms_text: "", settlement_type: "", settlement_value: "", settlement_note: "",
+  inclusions: "", dress_code: "", min_age: "21", highlights: "",
 };
 
 function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
@@ -58,6 +59,7 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
           female_seats: String(party.female_seats), min_paid_seats: String(party.min_paid_seats), closes_local: toIstLocal(party.closes_at),
           max_seats_per_booking: String(party.max_seats_per_booking), cover_photo_url: party.cover_photo_url || "", terms_text: party.terms_text || "",
           settlement_type: "", settlement_value: "", settlement_note: "",
+          inclusions: party.inclusions || "", dress_code: party.dress_code || "", min_age: String(party.min_age ?? 21), highlights: party.highlights || "",
         }
       : emptyForm
   );
@@ -120,6 +122,8 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
     if (!Number.isInteger(m) || m < 0 || !Number.isInteger(fe) || fe < 0 || m + fe < 1) return "Enter the male and female seats (whole numbers).";
     if (!Number.isInteger(min) || min < 1 || min > m + fe) return `Minimum paid seats must be between 1 and ${m + fe} (the total seats).`;
     if (!Number.isInteger(max) || max < 1) return "Maximum seats per booking must be at least 1.";
+    const age = Number(f.min_age);
+    if (!Number.isInteger(age) || age < 18 || age > 25) return "Minimum age must be a whole number from 18 to 25.";
     if (f.settlement_type === "percentage" && Number(f.settlement_value) > 100) return "A settlement percentage cannot be above 100.";
     if (f.settlement_type && f.settlement_value === "") return "Enter the settlement amount or percentage.";
     return "";
@@ -138,6 +142,7 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
         price_per_person: Number(f.price_per_person), male_seats: Number(f.male_seats), female_seats: Number(f.female_seats),
         min_paid_seats: Number(f.min_paid_seats), max_seats_per_booking: Number(f.max_seats_per_booking),
         cover_photo_url: f.cover_photo_url || null,
+        inclusions: f.inclusions.trim(), dress_code: f.dress_code.trim(), min_age: Number(f.min_age), highlights: f.highlights.trim(),
       };
       if (f.closes_local) body.closes_at = fromIstLocal(f.closes_local);
       else if (!editing) body.closes_at = null; // the database sets it to 3 days before the start
@@ -242,6 +247,22 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
             <textarea className={inputCls} rows={3} value={f.description} onChange={set("description")} />
           </Field>
         </div>
+        <div className="sm:col-span-2">
+          <Field label="Highlights" hint="One per line, e.g. Live DJ, Karaoke night. Shown as a short list on the party page.">
+            <textarea className={inputCls} rows={3} maxLength={2000} value={f.highlights} onChange={set("highlights")} data-testid="party-highlights" />
+          </Field>
+        </div>
+        <div className="sm:col-span-2">
+          <Field label="What is included" hint="One per line, e.g. Unlimited IMFL, Starters, Entry.">
+            <textarea className={inputCls} rows={3} maxLength={2000} value={f.inclusions} onChange={set("inclusions")} data-testid="party-inclusions" />
+          </Field>
+        </div>
+        <Field label="Dress code">
+          <input className={inputCls} maxLength={300} value={f.dress_code} onChange={set("dress_code")} placeholder="e.g. Smart casual" data-testid="party-dress" />
+        </Field>
+        <Field label="Minimum age (18 to 25)">
+          <input type="number" min="18" max="25" className={inputCls} value={f.min_age} onChange={set("min_age")} data-testid="party-minage" />
+        </Field>
         <Field label="Venue">
           <select className={inputCls} value={f.venue_id} onChange={set("venue_id")} disabled={locked} data-testid="party-venue">
             <option value="">Choose a venue…</option>

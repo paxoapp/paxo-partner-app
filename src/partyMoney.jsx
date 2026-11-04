@@ -9,7 +9,7 @@ const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN", { maximumFract
 const todayIst = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
 const fmtDay = (d) => (d ? new Date(`${d}T00:00:00+05:30`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const fmtAt = (iso) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—");
-const REASON = { party_cancelled: "Party cancelled", minimum_not_reached: "Minimum not reached", late_payment: "Paid too late" };
+const REASON = { party_cancelled: "Party cancelled", minimum_not_reached: "Minimum not reached", late_payment: "Paid too late", guest_cancelled: "Guest cancelled" };
 const inputCls = "w-full border border-slate-300 rounded px-3 py-2 text-sm";
 
 function Stat({ label, value, tone, testid }) {

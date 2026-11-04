@@ -11,6 +11,7 @@ import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
 import ManagedVenuesAdmin from "./managedVenues";
 import { NegotiationToggle, NegotiableTag } from "./negotiation";
+import PartyPoolAdmin from "./partyPool";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -3363,6 +3364,7 @@ export default function AdminApp() {
             ["settlements", "Settlements"],
             ["platformFees", "Platform fees"],
             ["managed", "Managed venues"],
+            ["partyPool", "Party Pool"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -3409,6 +3411,8 @@ export default function AdminApp() {
           <PlatformFeesAdmin session={session} />
         ) : section === "managed" ? (
           <ManagedVenuesAdmin session={session} />
+        ) : section === "partyPool" ? (
+          <PartyPoolAdmin session={session} />
         ) : selected ? (
           <VenueDetail
             session={session}

@@ -114,6 +114,23 @@ export async function deleteVenuePhoto(token, objectPath) {
   if (!res.ok) throw new Error("Couldn't delete photo");
 }
 
+// Party Pool cover photos: a public bucket only admins can write to (storage policy). Returns the public URL.
+export async function uploadPartyCover(token, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (file.size > 5 * 1024 * 1024) throw new Error("The photo is larger than 5 MB.");
+  const objectPath = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/party-covers/${objectPath}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(JSON.parse(t || "{}")?.message || "Upload failed");
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/party-covers/${objectPath}`;
+}
+
 const AVATARS_BUCKET = "avatars";
 
 // Upload a File to the public avatars bucket, shared with the customer app.

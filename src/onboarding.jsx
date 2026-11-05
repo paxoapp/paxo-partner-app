@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PartnerAgreementBody } from "./agreementText";
 import { sb, rpc, uploadPartnerDocument } from "./supabase";
 import StatusStepper from "./StatusStepper";
 
@@ -599,19 +600,7 @@ export function PartnerAgreementScreen({ session, venue, onAccepted, onLogout })
         </div>
 
         <div className="border border-stone-800 bg-stone-900/60 rounded-2xl p-5 mb-5 text-sm text-stone-300 space-y-3 max-h-96 overflow-y-auto">
-          <p>By continuing, you agree to the following terms as a PAXO venue partner:</p>
-          <ol className="list-decimal pl-4 space-y-2">
-            <li><strong>What PAXO is.</strong> PAXO is a booking platform connecting customers to venues. PAXO facilitates bookings, collects deposits, and processes settlements — your venue remains the actual service provider for every booking.</li>
-            <li><strong>Your packages.</strong> You are responsible for honoring the food & beverage packages exactly as you've configured them, including all listed quotas and categories, for every confirmed booking.</li>
-            <li><strong>Extra guests.</strong> If the number of guests attending exceeds the confirmed headcount, you may charge the customer additional amounts based on the increased guest count, as per your own venue policy — this is collected by you directly and is not calculated or collected by PAXO.</li>
-            <li><strong>Platform fee.</strong> PAXO charges a platform fee on the deposit portion of each booking, tiered by total booking value: 5% below ₹1 lakh, 7% between ₹1–2 lakh, 10% at ₹2 lakh and above.</li>
-            <li><strong>Deposits & refunds.</strong> A booking made more than 72 hours before the event takes a 20% deposit, which the customer can get back by the cancellation schedule (100% more than 72 hours before the event, 50% from 72 down to 48 hours, nothing after). A booking made within 72 hours takes a 50% deposit that is not refundable. If you decline, do not respond, cancel, or do not honour a booking, the customer gets back everything they paid. The remaining balance is paid directly to you by the customer at the venue.</li>
-            <li><strong>Billing.</strong> You are responsible for issuing a proper bill/invoice to the customer for every booking, including GST, VAT, and any other applicable taxes or service charges.</li>
-            <li><strong>Cancellations.</strong> You cannot cancel a confirmed booking yourself. If you need to cancel, contact PAXO Support — cancellations initiated this way refund the customer in full and no payout is made to you for that booking.</li>
-            <li><strong>Settlement & payout.</strong> PAXO holds each deposit and shows its status on the booking. A deposit becomes ready to be released to you 48 hours before the event (Standard booking) or after the event (Late booking), and never before the payment has settled with the payment gateway. PAXO then pays it to your bank account.</li>
-            <li><strong>Responding to requests.</strong> You must accept or decline booking requests within the response window shown for each request. Repeated non-response (not decline — decline is always fine) will place your venue on hold until PAXO reactivates it.</li>
-            <li><strong>Conduct & liability.</strong> PAXO is not responsible for any misconduct, misbehavior, disputes, or illegal activity occurring at your venue or during any event, by any party. You are solely responsible for the safety, legality, and conduct of your venue and event operations.</li>
-          </ol>
+          <PartnerAgreementBody />
         </div>
 
         <label className="flex items-start gap-2 text-xs text-stone-300 mb-4">

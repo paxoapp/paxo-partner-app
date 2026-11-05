@@ -11,6 +11,7 @@ import SocialLinks from "./SocialLinks";
 import PlatformFeesAdmin from "./adminPlatformFees";
 import ManagedVenuesAdmin from "./managedVenues";
 import { NegotiationToggle, NegotiableTag } from "./negotiation";
+import { AgreementPanel, AgreementBadge, useAgreementMap } from "./agreementInvite";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -663,6 +664,8 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
       <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} />
 
       <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
+
+      {venue.managed_by_paxo && <AgreementPanel session={session} venue={venue} />}
 
       {venue.status === "approved" && !venue.is_live && (
         <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
@@ -1664,6 +1667,7 @@ function CountBox({ label, count, tone, selected, onClick }) {
 
 function PartnersAdmin({ session }) {
   const [venues, setVenues] = useState([]);
+  const agreements = useAgreementMap(session.token, venues.length);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1789,6 +1793,7 @@ function PartnersAdmin({ session }) {
                 <th className="text-left px-4 py-2">Live status</th>
                 <th className="text-left px-4 py-2">Availability</th>
                 <th className="text-left px-4 py-2 hidden md:table-cell">Bookings</th>
+                <th className="text-left px-4 py-2 hidden lg:table-cell">Agreement</th>
               </tr>
             </thead>
             <tbody>
@@ -1821,6 +1826,7 @@ function PartnersAdmin({ session }) {
                       {total > 0 &&
                         ` (${s.accepted || 0} accepted, ${s.rejected || 0} rejected, ${s.cancelled || 0} cancelled, ${s.pending || 0} pending)`}
                     </td>
+                    <td className="px-4 py-2.5 hidden lg:table-cell"><AgreementBadge row={agreements[v.id]} /></td>
                   </tr>
                 );
               })}
@@ -1965,6 +1971,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} showStateNote />
 
       <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
+
+      {venue.managed_by_paxo && <AgreementPanel session={session} venue={venue} />}
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Live status control</h3>

@@ -103,3 +103,38 @@ values ('venue-bank-proofs', 'venue-bank-proofs', false, 5242880, array['image/j
 on conflict (id) do nothing;
 create policy venue_bank_proofs_select_admin on storage.objects for select to authenticated
   using (bucket_id = 'venue-bank-proofs' and exists (select 1 from public.admin_users au where au.id = auth.uid()));
+
+-- 7. "Link-added, not yet verified" tag. Purely informational: nothing (settlements, payouts, bookings) reads it.
+alter table public.venue_agreement_invites
+  add column bank_verified_at timestamptz,
+  add column bank_verified_by uuid;
+
+-- Admin only (checked inside; anon and non-admins are refused). For a list of venues: when the link-added bank details
+-- arrived and whether an admin has marked them verified. Venues whose details were not added through a link are absent.
+create or replace function public.admin_bank_link_status(p_venue_ids uuid[])
+returns table (vid uuid, added_at timestamptz, verified_at timestamptz)
+language plpgsql security definer set search_path = public as $f$
+begin
+  if not exists (select 1 from admin_users au where au.id = auth.uid()) then raise exception 'Admin access required'; end if;
+  return query
+    select distinct on (i.venue_id) i.venue_id, i.bank_done_at, i.bank_verified_at
+      from venue_agreement_invites i
+     where i.venue_id = any (p_venue_ids) and i.bank_status = 'added'
+     order by i.venue_id, i.bank_done_at desc;
+end $f$;
+
+create or replace function public.admin_bank_mark_verified(p_venue_id uuid)
+returns void language plpgsql security definer set search_path = public as $f$
+declare iid uuid;
+begin
+  if not exists (select 1 from admin_users au where au.id = auth.uid()) then raise exception 'Admin access required'; end if;
+  select i.id into iid from venue_agreement_invites i
+   where i.venue_id = p_venue_id and i.bank_status = 'added' order by i.bank_done_at desc limit 1;
+  if iid is null then raise exception 'No link-added bank details to verify'; end if;
+  update venue_agreement_invites set bank_verified_at = now(), bank_verified_by = auth.uid() where id = iid and bank_verified_at is null;
+end $f$;
+
+revoke execute on function public.admin_bank_link_status(uuid[]) from public, anon;
+revoke execute on function public.admin_bank_mark_verified(uuid) from public, anon;
+grant execute on function public.admin_bank_link_status(uuid[]) to authenticated;
+grant execute on function public.admin_bank_mark_verified(uuid) to authenticated;

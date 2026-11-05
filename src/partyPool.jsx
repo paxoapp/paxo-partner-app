@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { sb, uploadPartyCover } from "./supabase";
 import PartyMoney from "./partyMoney";
+import PartyMenu from "./partyMenu";
+import PartyGuests from "./partyGuests";
 
 // Admin "Party Pool" (Phase 1): create, edit, publish and cancel themed group parties that PAXO sells seats for.
 // The database enforces the rules (status path, locks once seats exist, "confirmed" only by the system), this screen
@@ -356,6 +358,8 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
       </fieldset>
 
       {editing && status !== "draft" && <PartyMoney session={session} party={{ ...current, status }} />}
+      {editing && status !== "draft" && <PartyGuests session={session} party={{ ...current, status }} />}
+      {editing && <PartyMenu session={session} party={{ ...current, status, venue_name: venues.find((x) => x.id === current.venue_id)?.name || "" }} />}
 
       {!final && (
         <div className="flex flex-wrap items-center gap-3 mb-6">

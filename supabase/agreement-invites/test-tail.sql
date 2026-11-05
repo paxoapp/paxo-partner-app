@@ -48,7 +48,7 @@ begin
   -- accept
   res := agreement_invite_accept(h2, '  Ravi Kumar ', 'Director', '1.2.3.4', 'Mozilla/5.0');
   out := out || (case when res->>'venue_name' = 'Beerlin' and res->>'email' = 'owner@example.com' then 'PASS accept returns details' else 'FAIL accept '||res end);
-  out := out || (case when exists (select 1 from agreement_acceptances where venue_id = bv and checkpoint = 'final_agreement' and policy_version = 'v1'
+  out := out || (case when exists (select 1 from agreement_acceptances where venue_id = bv and checkpoint = 'final_agreement' and policy_version = 'v2'
         and accepted_via = 'email_link' and accepted_by_name = 'Ravi Kumar' and accepted_by_designation = 'Director'
         and accepted_email = 'owner@example.com' and ip_address = '1.2.3.4' and device_info = 'Mozilla/5.0') then 'PASS acceptance row complete' else 'FAIL acceptance row' end);
   out := out || (case when (select used_at from venue_agreement_invites where token_hash = h2) is not null then 'PASS invite marked used' else 'FAIL used_at' end);

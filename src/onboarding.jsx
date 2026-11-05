@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PartnerAgreementBody } from "./agreementText";
+import { PartnerAgreementBody, AGREEMENT_VERSION } from "./agreementText";
 import { sb, rpc, uploadPartnerDocument } from "./supabase";
 import StatusStepper from "./StatusStepper";
 
@@ -63,7 +63,7 @@ export function validateGstinFormat(rawGstin) {
   return { valid: true, reason: "" };
 }
 
-export const AGREEMENT_POLICY_VERSION = "v1";
+export const AGREEMENT_POLICY_VERSION = AGREEMENT_VERSION;
 
 export async function recordAgreementAcceptance(session, venueId, checkpoint) {
   await sb("/rest/v1/agreement_acceptances", {

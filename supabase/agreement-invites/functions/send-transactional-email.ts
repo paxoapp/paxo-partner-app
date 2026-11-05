@@ -154,7 +154,7 @@ function buildTemplate(type: string, data: Record<string, unknown>): EmailTempla
           `<p>This confirms that <strong>${esc(name)}</strong>${designation ? ` (${esc(designation)})` : ""} accepted the PAXO Partner Agreement between <strong>${esc(COUNTERPARTY)}</strong> and <strong>${esc(venueName)}</strong>` +
             (at ? ` on <strong>${esc(at)}</strong>` : "") + `.</p>` +
             `<p>A PDF copy is attached, and the full agreement is below for your records.</p>` +
-            `<p style="font-size:13px;margin:20px 0 8px;"><strong>PAXO Partner Agreement (v1)</strong></p>` +
+            `<p style="font-size:13px;margin:20px 0 8px;"><strong>PAXO Partner Agreement (v2)</strong></p>` +
             `<ol style="padding-left:20px;font-size:13px;">${list}</ol>` +
             (ref ? `<p style="font-size:12px;color:#9a8a84;">Reference: ${esc(ref)}</p>` : "") +
             `<p style="font-size:13px;color:#6b5b55;">Questions? Write to <a href="mailto:support@mypaxo.in" style="color:#170D0B;">support@mypaxo.in</a>.</p>`

@@ -2975,6 +2975,28 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // A refund that has to be made by hand in the Cashfree dashboard: once it is done there, record it here.
+  const [cfRefundRef, setCfRefundRef] = useState({}); // alert id -> optional Cashfree refund id typed by the admin
+  const [cfRefundBusy, setCfRefundBusy] = useState(null);
+  async function markCashfreeRefunded(a) {
+    const amt = a.payments?.refund_amount;
+    if (!window.confirm(`Mark this refund as done? Only do this after you have refunded ₹${amt} in the Cashfree dashboard (Cashfree payment id ${a.payments?.cashfree_payment_id}). The customer gets a refund email.`)) return;
+    setCfRefundBusy(a.id);
+    setError("");
+    try {
+      const res = await rpc(session.token, "admin_mark_cashfree_refund_processed", {
+        p_payment_id: a.payment_id,
+        p_cashfree_refund_id: (cfRefundRef[a.id] || "").trim() || null,
+      });
+      if (!res?.ok) throw new Error(res?.result || "Could not mark the refund");
+      setAlerts((x) => x.filter((y) => y.id !== a.id));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCfRefundBusy(null);
+    }
+  }
+
   async function resolveAlert(id) {
     try {
       await sb(`/rest/v1/admin_alerts?id=eq.${id}`, {
@@ -3004,7 +3026,7 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
         ),
         sb("/rest/v1/profiles?select=id&is_managed_login=eq.false", { token: session.token }),
         sb("/rest/v1/booking_commissions?kind=eq.commission&select=amount,status&limit=5000", { token: session.token }),
-        sb("/rest/v1/admin_alerts?resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
+        sb("/rest/v1/admin_alerts?select=*,payments(provider,cashfree_payment_id,cashfree_order_id,refund_status,refund_amount)&resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
       ]);
       setAlerts(al || []);
       setBookings(bk);
@@ -3071,9 +3093,30 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
                 {a.urgent && <strong>URGENT · </strong>}
                 {a.message}
               </span>
-              <button type="button" onClick={() => resolveAlert(a.id)} className="text-xs underline whitespace-nowrap">
-                Mark handled
-              </button>
+              {a.payments?.provider === "cashfree" && a.payments?.refund_status === "pending" ? (
+                <span className="flex flex-col items-end gap-1" data-testid="cashfree-refund-action">
+                  <input
+                    type="text"
+                    value={cfRefundRef[a.id] || ""}
+                    onChange={(e) => setCfRefundRef((m) => ({ ...m, [a.id]: e.target.value }))}
+                    placeholder="Cashfree refund id (optional)"
+                    maxLength={100}
+                    className="border border-rose-200 rounded px-2 py-1 text-xs w-48 bg-white"
+                  />
+                  <button
+                    type="button"
+                    disabled={cfRefundBusy === a.id}
+                    onClick={() => markCashfreeRefunded(a)}
+                    className="text-xs font-semibold bg-rose-700 text-white rounded px-2.5 py-1 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {cfRefundBusy === a.id ? "Saving…" : `Mark refunded (₹${a.payments.refund_amount})`}
+                  </button>
+                </span>
+              ) : (
+                <button type="button" onClick={() => resolveAlert(a.id)} className="text-xs underline whitespace-nowrap">
+                  Mark handled
+                </button>
+              )}
             </div>
           ))}
         </div>

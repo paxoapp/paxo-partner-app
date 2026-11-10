@@ -4,7 +4,8 @@
 -- payments, commissions, coupons or the booking refund logic. No existing row is changed.
 --
 -- DECISIONS ASSUMED (founder to confirm; each is one line to change):
---   * Tax percent is typed per party in the admin form (default 18). New parties default to "price includes tax".
+--   * Tax percent is typed per party in the admin form. It DEFAULTS TO 0, and at 0 no tax line or tax word is shown to customers anywhere
+--     (the existing party and every new party stay tax-free until someone enters a percent). New parties default to "price includes tax".
 --   * The 30% deposit is taken on the total INCLUDING tax; a full refund returns everything paid, tax included.
 --   * 5 seats per account is a hard cap in the database (least(max_seats_per_booking, 5)); the party form also limits it to 5.
 --   * Cashfree needs an order to stay open at least ~16 minutes, so a Cashfree payment holds the seats for 16 minutes
@@ -15,7 +16,7 @@
 -- 1. Parties: tax settings; default of 5 seats per booking -------------------------------------------------------------
 alter table public.parties
   add column price_includes_tax boolean       not null default true,
-  add column tax_percent        numeric(5,2)  not null default 18 check (tax_percent >= 0 and tax_percent <= 100);
+  add column tax_percent        numeric(5,2)  not null default 0 check (tax_percent >= 0 and tax_percent <= 100);
 alter table public.parties alter column max_seats_per_booking set default 5;
 
 -- new parties get terms that say 5, not 10 (existing parties keep their own text; the admin edits it, which bumps the version)

@@ -46,7 +46,7 @@ const inputCls = "mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm 
 
 const emptyForm = {
   title: "", description: "", venue_id: "", party_date: "", start_time: "20:00", end_time: "01:00", package_type: "", liquor_type: "",
-  price_per_person: "", male_seats: "", female_seats: "", min_paid_seats: "30", closes_local: "", max_seats_per_booking: "5", price_includes_tax: "yes", tax_percent: "18",
+  price_per_person: "", male_seats: "", female_seats: "", min_paid_seats: "30", closes_local: "", max_seats_per_booking: "5", price_includes_tax: "yes", tax_percent: "0",
   cover_photo_url: "", terms_text: "", settlement_type: "", settlement_value: "", settlement_note: "",
   inclusions: "", dress_code: "", min_age: "21", highlights: "",
 };
@@ -59,7 +59,7 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
           start_time: hhmm(party.start_time), end_time: hhmm(party.end_time), package_type: party.package_type || "",
           liquor_type: party.liquor_type || "", price_per_person: String(party.price_per_person), male_seats: String(party.male_seats),
           female_seats: String(party.female_seats), min_paid_seats: String(party.min_paid_seats), closes_local: toIstLocal(party.closes_at),
-          max_seats_per_booking: String(Math.min(party.max_seats_per_booking, 5)), price_includes_tax: party.price_includes_tax === false ? "no" : "yes", tax_percent: String(party.tax_percent ?? 18), cover_photo_url: party.cover_photo_url || "", terms_text: party.terms_text || "",
+          max_seats_per_booking: String(Math.min(party.max_seats_per_booking, 5)), price_includes_tax: party.price_includes_tax === false ? "no" : "yes", tax_percent: String(party.tax_percent ?? 0), cover_photo_url: party.cover_photo_url || "", terms_text: party.terms_text || "",
           settlement_type: "", settlement_value: "", settlement_note: "",
           inclusions: party.inclusions || "", dress_code: party.dress_code || "", min_age: String(party.min_age ?? 21), highlights: party.highlights || "",
         }

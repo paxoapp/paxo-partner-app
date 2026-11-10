@@ -86,6 +86,19 @@ function feeOfPayment(p) {
   const list = Array.isArray(c) ? c : c ? [c] : [];
   return list.find((x) => !x.kind || x.kind === "commission") || null;
 }
+// The platform fee is shown with its exact amount only while it can still be charged. A cancelled fee is "Not charged", with no amount.
+function feeText(p, money) {
+  const fee = feeOfPayment(p);
+  if (!fee) return "—";
+  return fee.status === "cancelled" ? "Not charged" : money(fee.amount);
+}
+// Where a payment stands for the venue: settled, nothing to transfer (the whole deposit went back to the customer), or still to pay.
+function settlementState(p) {
+  if (p.settlement_status === "settled") return "settled";
+  return depositToPass(p) <= 0 ? "none" : "pending";
+}
+// Gateway reference of the payment: Razorpay payment id, or the Cashfree payment id for a Cashfree payment.
+const paymentReference = (p) => (p.provider === "cashfree" ? p.cashfree_payment_id : p.razorpay_payment_id);
 const FEE_STATUS_LABELS = { pending: "Upcoming", due: "Due", debited: "Paid", failed: "Payment problem", cancelled: "Not charged" };
 
 // Central place a real notification would fire from once providers exist.
@@ -1054,12 +1067,12 @@ function TransactionReceipt({ session, payment: p, onBack }) {
           <Row label="Payment type" value={p.payment_type} />
           <Row label="Deposit tier" value={b.deposit_tier} />
           <Row label="Received on" value={fmtDateTime(p.paid_at)} />
-          <Row label="Payment reference" value={p.razorpay_payment_id} />
+          <Row label="Payment reference" value={paymentReference(p)} />
         </div>
 
         <div className="mb-4">
           <h3 className="font-medium text-sm mb-2">2. PAXO platform fee (paid separately by the venue)</h3>
-          <Row label="Platform fee" value={feeOfPayment(p) ? inr(feeOfPayment(p).amount) : "—"} />
+          <Row label="Platform fee" value={feeText(p, inr2)} />
           <Row label="Fee status" value={feeOfPayment(p) ? FEE_STATUS_LABELS[feeOfPayment(p).status] || feeOfPayment(p).status : "—"} />
         </div>
 
@@ -1067,7 +1080,7 @@ function TransactionReceipt({ session, payment: p, onBack }) {
           p={p}
           b={b}
           Row={Row}
-          settlementText={p.settlement_status === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : "Pending"}
+          settlementText={settlementState(p) === "settled" ? `Settled on ${fmtDate(p.settled_at)}` : settlementState(p) === "none" ? "Nothing to transfer" : "Pending"}
         />
 
         <div className="mb-2">
@@ -1122,7 +1135,7 @@ function Settlements({ session }) {
     setError("");
     try {
       const query = (withMode) =>
-        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,provider," + (withMode ? "gateway_mode," : "") + "amount,refund_amount,gateway_fee_deducted,refund_status," +
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,cashfree_payment_id,provider," + (withMode ? "gateway_mode," : "") + "amount,refund_amount,gateway_fee_deducted,refund_status," +
           "paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
           "booking_commissions(kind,amount,percent,status),booking_deposit_holds(release_status,deposit_release_at,released_at)," +
@@ -1204,15 +1217,16 @@ function Settlements({ session }) {
     return !h || h.release_status === "releasable";
   };
   const shown = rows.filter((r) => showTest || !isTest(r));
-  const visible = shown.filter((r) => tab === "all" || r.settlement_status === tab);
+  const visible = shown.filter((r) => tab === "all" || settlementState(r) === tab);
   const counts = shown.reduce((a, r) => {
-    a[r.settlement_status] = (a[r.settlement_status] || 0) + 1;
+    const st = settlementState(r);
+    a[st] = (a[st] || 0) + 1;
     return a;
   }, {});
-  const readyToPay = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && isReleasable(r) && depositToPass(r) > 0);
+  const readyToPay = rows.filter((r) => !isTest(r) && settlementState(r) === "pending" && isReleasable(r));
   const pendingPayout = readyToPay.reduce((s, r) => s + depositToPass(r), 0);
-  const testPendingCount = rows.filter((r) => isTest(r) && r.settlement_status === "pending").length;
-  const realOnHoldCount = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && !isReleasable(r)).length;
+  const testPendingCount = rows.filter((r) => isTest(r) && settlementState(r) === "pending").length;
+  const realOnHoldCount = rows.filter((r) => !isTest(r) && settlementState(r) === "pending" && !isReleasable(r)).length;
 
   if (viewingReceipt) {
     return (
@@ -1265,7 +1279,7 @@ function Settlements({ session }) {
       ) : visible.length === 0 ? (
         <p className="text-slate-400 text-sm">
           No {showTest ? "" : "real "}payments in this view.
-          {!showTest && testPendingCount + rows.filter((r) => isTest(r) && r.settlement_status !== "pending").length > 0 && " Test payments are hidden."}
+          {!showTest && testPendingCount + rows.filter((r) => isTest(r) && settlementState(r) !== "pending").length > 0 && " Test payments are hidden."}
         </p>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
@@ -1297,27 +1311,39 @@ function Settlements({ session }) {
                       </span>
                     )}
                     <span className="block text-xs text-slate-400 capitalize">{p.payment_type}</span>
-                    {p.bookings?.status === "cancelled" && (
-                      <span
-                        className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700"
-                        title={p.bookings?.cancellation_reason || "Booking was cancelled"}
-                      >
-                        Forfeiture — booking cancelled
-                      </span>
-                    )}
+                    {p.bookings?.status === "cancelled" &&
+                      (depositToPass(p) > 0 ? (
+                        <span
+                          className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700"
+                          title={p.bookings?.cancellation_reason || "Booking was cancelled"}
+                        >
+                          Forfeiture — booking cancelled
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600"
+                          title={p.bookings?.cancellation_reason || "Booking was cancelled"}
+                        >
+                          Cancelled, fully refunded
+                        </span>
+                      ))}
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.bookings?.event_date)}</td>
                   <td className="px-4 py-2.5 text-right">{inr(p.amount)}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-500">{feeOfPayment(p) ? inr(feeOfPayment(p).amount) : "—"}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500">{feeText(p, inr2)}</td>
                   <td className="px-4 py-2.5 text-right font-medium">{inr(depositToPass(p))}</td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.paid_at)}</td>
                   <td className="px-4 py-2.5">
-                    {p.settlement_status === "settled" ? (
+                    {settlementState(p) === "settled" ? (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
                         title={p.settlement_notes || undefined}
                       >
                         Settled · {fmtDate(p.settled_at)}
+                      </span>
+                    ) : settlementState(p) === "none" ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        Nothing to transfer
                       </span>
                     ) : (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
@@ -1333,7 +1359,7 @@ function Settlements({ session }) {
                       >
                         Receipt
                       </button>
-                      {p.settlement_status === "pending" && (
+                      {settlementState(p) === "pending" && (
                         p.bookings?.venues?.partner_bank_details ? (
                           <button
                             onClick={() => copyBankDetails(p)}
@@ -1348,7 +1374,7 @@ function Settlements({ session }) {
                           </span>
                         )
                       )}
-                      {p.settlement_status === "pending" && (
+                      {settlementState(p) === "pending" && (
                         <button
                           onClick={() => setConfirming(p)}
                           disabled={busyId === p.id}

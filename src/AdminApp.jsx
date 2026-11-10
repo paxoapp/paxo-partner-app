@@ -12,6 +12,7 @@ import PlatformFeesAdmin from "./adminPlatformFees";
 import ManagedVenuesAdmin from "./managedVenues";
 import { NegotiationToggle, NegotiableTag } from "./negotiation";
 import PartyPoolAdmin from "./partyPool";
+import { AgreementPanel, AgreementBadge, useAgreementMap } from "./agreementInvite";
 
 async function callFn(slug, token, body) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${slug}`, {
@@ -665,6 +666,8 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
       <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
 
+      {venue.managed_by_paxo && <AgreementPanel session={session} venue={venue} />}
+
       {venue.status === "approved" && !venue.is_live && (
         <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between gap-3 mb-2">
@@ -1112,22 +1115,31 @@ function Settlements({ session }) {
   const [error, setError] = useState("");
   const [viewingReceipt, setViewingReceipt] = useState(null); // payment row awaiting the receipt view
   const [copiedId, setCopiedId] = useState(null);
+  const [showTest, setShowTest] = useState(false); // test payments are hidden unless asked for
+  const [modeMissing, setModeMissing] = useState(false); // the gateway_mode column is not in the database yet
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await sb(
-        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,refund_amount,gateway_fee_deducted,refund_status," +
+      const query = (withMode) =>
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,provider," + (withMode ? "gateway_mode," : "") + "amount,refund_amount,gateway_fee_deducted,refund_status," +
           "paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
           "booking_commissions(kind,amount,percent,status),booking_deposit_holds(release_status,deposit_release_at,released_at)," +
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
-          "&order=paid_at.desc.nullslast&limit=5000",
-        { token: session.token }
-      );
+          "&order=paid_at.desc.nullslast&limit=5000";
+      let data;
+      try {
+        data = await sb(query(true), { token: session.token });
+        setModeMissing(false);
+      } catch (e) {
+        if (!/gateway_mode/i.test(String(e?.message || e))) throw e;
+        data = await sb(query(false), { token: session.token }); // column not created yet: every payment counts as test
+        setModeMissing(true);
+      }
       setRows(data);
     } catch (e) {
       setError(e.message);
@@ -1185,14 +1197,23 @@ function Settlements({ session }) {
     }
   }
 
-  const visible = rows.filter((r) => tab === "all" || r.settlement_status === tab);
-  const counts = rows.reduce((a, r) => {
+  // A payment is real money only when the database says gateway_mode = 'live'. Anything else (including a missing value) is test.
+  const isTest = (r) => r.gateway_mode !== "live";
+  // Releasable: no deposit hold on it, or the hold is over. A deposit still "held" is not ready to pay out.
+  const isReleasable = (r) => {
+    const h = oneHold(r.bookings);
+    return !h || h.release_status === "releasable";
+  };
+  const shown = rows.filter((r) => showTest || !isTest(r));
+  const visible = shown.filter((r) => tab === "all" || r.settlement_status === tab);
+  const counts = shown.reduce((a, r) => {
     a[r.settlement_status] = (a[r.settlement_status] || 0) + 1;
     return a;
   }, {});
-  const pendingPayout = rows
-    .filter((r) => r.settlement_status === "pending")
-    .reduce((s, r) => s + depositToPass(r), 0);
+  const readyToPay = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && isReleasable(r) && depositToPass(r) > 0);
+  const pendingPayout = readyToPay.reduce((s, r) => s + depositToPass(r), 0);
+  const testPendingCount = rows.filter((r) => isTest(r) && r.settlement_status === "pending").length;
+  const realOnHoldCount = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && !isReleasable(r)).length;
 
   if (viewingReceipt) {
     return (
@@ -1205,9 +1226,23 @@ function Settlements({ session }) {
       <h1 className="text-2xl font-semibold mb-1">Settlements</h1>
       <p className="text-sm text-slate-500 mb-4">
         Paid customer deposits and the amount to pass to each venue.{" "}
-        {inr(pendingPayout)} pending across {counts.pending || 0} payment
-        {(counts.pending || 0) === 1 ? "" : "s"}.
+        <span data-testid="settlement-ready-total">{inr(pendingPayout)} ready to pay</span> across {readyToPay.length} real, releasable payment
+        {readyToPay.length === 1 ? "" : "s"}.
+        {realOnHoldCount > 0 && <> {realOnHoldCount} real payment{realOnHoldCount === 1 ? " is" : "s are"} still on hold (not counted).</>}
+        {testPendingCount > 0 && <> {testPendingCount} test payment{testPendingCount === 1 ? " is" : "s are"} not counted.</>}
       </p>
+
+      {modeMissing && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3" data-testid="mode-missing-note">
+          Test / live marking is not set up in the database yet, so every payment is treated as test and the ready-to-pay total is ₹0.
+        </p>
+      )}
+
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-3 cursor-pointer" data-testid="show-test-toggle">
+        <input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />
+        Show test payments
+        <span className="text-xs text-slate-400">(Razorpay test mode, Cashfree sandbox, demo accounts)</span>
+      </label>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {SETTLEMENT_TABS.map(([key, label]) => (
@@ -1229,7 +1264,10 @@ function Settlements({ session }) {
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>
       ) : visible.length === 0 ? (
-        <p className="text-slate-400 text-sm">No payments in this view.</p>
+        <p className="text-slate-400 text-sm">
+          No {showTest ? "" : "real "}payments in this view.
+          {!showTest && testPendingCount + rows.filter((r) => isTest(r) && r.settlement_status !== "pending").length > 0 && " Test payments are hidden."}
+        </p>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
@@ -1250,6 +1288,15 @@ function Settlements({ session }) {
                 <tr key={p.id} className="border-t border-slate-100">
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{p.bookings?.venues?.name || "—"}</span>
+                    {isTest(p) && (
+                      <span
+                        className="ml-2 inline-block text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 align-middle"
+                        title={`Test payment (${p.provider === "cashfree" ? "Cashfree" : "Razorpay"}). No real money was taken. Do not transfer anything for it.`}
+                        data-testid="test-badge"
+                      >
+                        TEST
+                      </span>
+                    )}
                     <span className="block text-xs text-slate-400 capitalize">{p.payment_type}</span>
                     {p.bookings?.status === "cancelled" && (
                       <span
@@ -1665,6 +1712,7 @@ function CountBox({ label, count, tone, selected, onClick }) {
 
 function PartnersAdmin({ session }) {
   const [venues, setVenues] = useState([]);
+  const agreements = useAgreementMap(session.token, venues.length);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1790,6 +1838,7 @@ function PartnersAdmin({ session }) {
                 <th className="text-left px-4 py-2">Live status</th>
                 <th className="text-left px-4 py-2">Availability</th>
                 <th className="text-left px-4 py-2 hidden md:table-cell">Bookings</th>
+                <th className="text-left px-4 py-2 hidden lg:table-cell">Agreement</th>
               </tr>
             </thead>
             <tbody>
@@ -1822,6 +1871,7 @@ function PartnersAdmin({ session }) {
                       {total > 0 &&
                         ` (${s.accepted || 0} accepted, ${s.rejected || 0} rejected, ${s.cancelled || 0} cancelled, ${s.pending || 0} pending)`}
                     </td>
+                    <td className="px-4 py-2.5 hidden lg:table-cell"><AgreementBadge row={agreements[v.id]} /></td>
                   </tr>
                 );
               })}
@@ -1966,6 +2016,8 @@ function PartnerVenueDetail({ session, venue, bookingStats, onBack, onUpdated })
       <AutoHoldBanner session={session} venue={venue} onUpdated={onUpdated} showStateNote />
 
       <NegotiationToggle session={session} venue={venue} onUpdated={onUpdated} />
+
+      {venue.managed_by_paxo && <AgreementPanel session={session} venue={venue} />}
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <h3 className="font-medium text-sm mb-2">Live status control</h3>
@@ -2968,6 +3020,28 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // A refund that has to be made by hand in the Cashfree dashboard: once it is done there, record it here.
+  const [cfRefundRef, setCfRefundRef] = useState({}); // alert id -> optional Cashfree refund id typed by the admin
+  const [cfRefundBusy, setCfRefundBusy] = useState(null);
+  async function markCashfreeRefunded(a) {
+    const amt = a.payments?.refund_amount;
+    if (!window.confirm(`Mark this refund as done? Only do this after you have refunded ₹${amt} in the Cashfree dashboard (Cashfree payment id ${a.payments?.cashfree_payment_id}). The customer gets a refund email.`)) return;
+    setCfRefundBusy(a.id);
+    setError("");
+    try {
+      const res = await rpc(session.token, "admin_mark_cashfree_refund_processed", {
+        p_payment_id: a.payment_id,
+        p_cashfree_refund_id: (cfRefundRef[a.id] || "").trim() || null,
+      });
+      if (!res?.ok) throw new Error(res?.result || "Could not mark the refund");
+      setAlerts((x) => x.filter((y) => y.id !== a.id));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCfRefundBusy(null);
+    }
+  }
+
   async function resolveAlert(id) {
     try {
       await sb(`/rest/v1/admin_alerts?id=eq.${id}`, {
@@ -2997,7 +3071,7 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
         ),
         sb("/rest/v1/profiles?select=id&is_managed_login=eq.false", { token: session.token }),
         sb("/rest/v1/booking_commissions?kind=eq.commission&select=amount,status&limit=5000", { token: session.token }),
-        sb("/rest/v1/admin_alerts?resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
+        sb("/rest/v1/admin_alerts?select=*,payments(provider,cashfree_payment_id,cashfree_order_id,refund_status,refund_amount)&resolved_at=is.null&order=created_at.desc&limit=20", { token: session.token }),
       ]);
       setAlerts(al || []);
       setBookings(bk);
@@ -3064,9 +3138,30 @@ function Dashboard({ session, venues, onGoToOnboarding }) {
                 {a.urgent && <strong>URGENT · </strong>}
                 {a.message}
               </span>
-              <button type="button" onClick={() => resolveAlert(a.id)} className="text-xs underline whitespace-nowrap">
-                Mark handled
-              </button>
+              {a.payments?.provider === "cashfree" && a.payments?.refund_status === "pending" ? (
+                <span className="flex flex-col items-end gap-1" data-testid="cashfree-refund-action">
+                  <input
+                    type="text"
+                    value={cfRefundRef[a.id] || ""}
+                    onChange={(e) => setCfRefundRef((m) => ({ ...m, [a.id]: e.target.value }))}
+                    placeholder="Cashfree refund id (optional)"
+                    maxLength={100}
+                    className="border border-rose-200 rounded px-2 py-1 text-xs w-48 bg-white"
+                  />
+                  <button
+                    type="button"
+                    disabled={cfRefundBusy === a.id}
+                    onClick={() => markCashfreeRefunded(a)}
+                    className="text-xs font-semibold bg-rose-700 text-white rounded px-2.5 py-1 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {cfRefundBusy === a.id ? "Saving…" : `Mark refunded (₹${a.payments.refund_amount})`}
+                  </button>
+                </span>
+              ) : (
+                <button type="button" onClick={() => resolveAlert(a.id)} className="text-xs underline whitespace-nowrap">
+                  Mark handled
+                </button>
+              )}
             </div>
           ))}
         </div>

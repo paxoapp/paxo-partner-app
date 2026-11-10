@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import AdminApp from './AdminApp.jsx'
+import AgreementPage from './agreementPage.jsx'
 import './index.css'
 
 // The standalone admin console is served two ways: at partner.mypaxo.in/admin*
@@ -13,6 +14,10 @@ const isAdmin =
   window.location.hostname === "admin.mypaxo.in" ||
   window.location.pathname.replace(/\/+$/, "").startsWith("/admin");
 
+// Public, no login: the one-time link a venue owner gets by email to accept the Partner Agreement.
+// It never mounts the partner app, so no session is read or restored on this page.
+const agreementMatch = window.location.pathname.match(/^\/agreement\/([A-Za-z0-9_-]+)\/?$/);
+
 if (isAdmin) {
   const meta = document.createElement("meta");
   meta.name = "robots";
@@ -22,6 +27,6 @@ if (isAdmin) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isAdmin ? <AdminApp /> : <App />}
+    {agreementMatch ? <AgreementPage token={agreementMatch[1]} /> : isAdmin ? <AdminApp /> : <App />}
   </React.StrictMode>,
 )

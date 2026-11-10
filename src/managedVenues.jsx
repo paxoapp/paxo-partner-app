@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { sb, SUPABASE_URL, ANON_KEY } from "./supabase";
 import { VENUE_TYPES } from "./onboarding";
 import { NegotiationToggle, NegotiableTag } from "./negotiation";
+import { AgreementPanel } from "./agreementInvite";
 
 // Admin "Managed venues" tab: PAXO adds a venue on the owner's behalf, runs its partner login, and later hands it over.
 // Passwords are made and shown by the admin-only edge functions. Here a password lives only in this component's state,
@@ -267,7 +268,7 @@ export default function ManagedVenuesAdmin({ session }) {
     setError("");
     try {
       const rows = await sb(
-        "/rest/v1/venues?managed_by_paxo=eq.true&select=id,name,city,venue_type,is_live,status,open_to_negotiation,business_email,owner_contact_email,contact_person_name,contact_phone,created_at&order=created_at.desc",
+        "/rest/v1/venues?managed_by_paxo=eq.true&select=id,name,city,venue_type,is_live,status,open_to_negotiation,business_email,owner_name,owner_contact_email,contact_person_name,contact_phone,created_at&order=created_at.desc",
         { token: session.token }
       );
       setVenues(rows || []);
@@ -366,6 +367,7 @@ export default function ManagedVenuesAdmin({ session }) {
               <div className="mt-3">
                 <NegotiationToggle session={session} venue={v} onUpdated={(row) => setVenues((vs) => vs.map((x) => (x.id === row.id ? { ...x, ...row } : x)))} />
               </div>
+              <AgreementPanel session={session} venue={v} compact />
               {!v.is_live && (
                 <p className="text-xs text-slate-500 mt-2">To publish: Onboarding → Approved → open this venue → “Publish to customers” (needs address, 3+ photos, menu, 2+ packages).</p>
               )}

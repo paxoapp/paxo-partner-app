@@ -1114,22 +1114,31 @@ function Settlements({ session }) {
   const [error, setError] = useState("");
   const [viewingReceipt, setViewingReceipt] = useState(null); // payment row awaiting the receipt view
   const [copiedId, setCopiedId] = useState(null);
+  const [showTest, setShowTest] = useState(false); // test payments are hidden unless asked for
+  const [modeMissing, setModeMissing] = useState(false); // the gateway_mode column is not in the database yet
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await sb(
-        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,amount,refund_amount,gateway_fee_deducted,refund_status," +
+      const query = (withMode) =>
+        "/rest/v1/payments?status=eq.paid&select=id,razorpay_payment_id,provider," + (withMode ? "gateway_mode," : "") + "amount,refund_amount,gateway_fee_deducted,refund_status," +
           "paid_at,settlement_status,settled_at,settlement_notes,payment_type," +
           "bookings(id,booking_ref,status,cancellation_reason,event_date,total_amount,deposit_tier,headcount,contact_name,contact_mobile," +
           "booking_commissions(kind,amount,percent,status),booking_deposit_holds(release_status,deposit_release_at,released_at)," +
           "contact_email,venues(id,name,partner_bank_details(account_holder_name,account_number,ifsc_code,bank_name,branch_name,upi_id))," +
           "venue_packages(name,price_per_head,discount_percent,includes_dj,dj_notes)," +
           "booking_addon_requests(addon_name,status,price))" +
-          "&order=paid_at.desc.nullslast&limit=5000",
-        { token: session.token }
-      );
+          "&order=paid_at.desc.nullslast&limit=5000";
+      let data;
+      try {
+        data = await sb(query(true), { token: session.token });
+        setModeMissing(false);
+      } catch (e) {
+        if (!/gateway_mode/i.test(String(e?.message || e))) throw e;
+        data = await sb(query(false), { token: session.token }); // column not created yet: every payment counts as test
+        setModeMissing(true);
+      }
       setRows(data);
     } catch (e) {
       setError(e.message);
@@ -1187,14 +1196,23 @@ function Settlements({ session }) {
     }
   }
 
-  const visible = rows.filter((r) => tab === "all" || r.settlement_status === tab);
-  const counts = rows.reduce((a, r) => {
+  // A payment is real money only when the database says gateway_mode = 'live'. Anything else (including a missing value) is test.
+  const isTest = (r) => r.gateway_mode !== "live";
+  // Releasable: no deposit hold on it, or the hold is over. A deposit still "held" is not ready to pay out.
+  const isReleasable = (r) => {
+    const h = oneHold(r.bookings);
+    return !h || h.release_status === "releasable";
+  };
+  const shown = rows.filter((r) => showTest || !isTest(r));
+  const visible = shown.filter((r) => tab === "all" || r.settlement_status === tab);
+  const counts = shown.reduce((a, r) => {
     a[r.settlement_status] = (a[r.settlement_status] || 0) + 1;
     return a;
   }, {});
-  const pendingPayout = rows
-    .filter((r) => r.settlement_status === "pending")
-    .reduce((s, r) => s + depositToPass(r), 0);
+  const readyToPay = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && isReleasable(r) && depositToPass(r) > 0);
+  const pendingPayout = readyToPay.reduce((s, r) => s + depositToPass(r), 0);
+  const testPendingCount = rows.filter((r) => isTest(r) && r.settlement_status === "pending").length;
+  const realOnHoldCount = rows.filter((r) => !isTest(r) && r.settlement_status === "pending" && !isReleasable(r)).length;
 
   if (viewingReceipt) {
     return (
@@ -1207,9 +1225,23 @@ function Settlements({ session }) {
       <h1 className="text-2xl font-semibold mb-1">Settlements</h1>
       <p className="text-sm text-slate-500 mb-4">
         Paid customer deposits and the amount to pass to each venue.{" "}
-        {inr(pendingPayout)} pending across {counts.pending || 0} payment
-        {(counts.pending || 0) === 1 ? "" : "s"}.
+        <span data-testid="settlement-ready-total">{inr(pendingPayout)} ready to pay</span> across {readyToPay.length} real, releasable payment
+        {readyToPay.length === 1 ? "" : "s"}.
+        {realOnHoldCount > 0 && <> {realOnHoldCount} real payment{realOnHoldCount === 1 ? " is" : "s are"} still on hold (not counted).</>}
+        {testPendingCount > 0 && <> {testPendingCount} test payment{testPendingCount === 1 ? " is" : "s are"} not counted.</>}
       </p>
+
+      {modeMissing && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3" data-testid="mode-missing-note">
+          Test / live marking is not set up in the database yet, so every payment is treated as test and the ready-to-pay total is ₹0.
+        </p>
+      )}
+
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-3 cursor-pointer" data-testid="show-test-toggle">
+        <input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} />
+        Show test payments
+        <span className="text-xs text-slate-400">(Razorpay test mode, Cashfree sandbox, demo accounts)</span>
+      </label>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {SETTLEMENT_TABS.map(([key, label]) => (
@@ -1231,7 +1263,10 @@ function Settlements({ session }) {
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>
       ) : visible.length === 0 ? (
-        <p className="text-slate-400 text-sm">No payments in this view.</p>
+        <p className="text-slate-400 text-sm">
+          No {showTest ? "" : "real "}payments in this view.
+          {!showTest && testPendingCount + rows.filter((r) => isTest(r) && r.settlement_status !== "pending").length > 0 && " Test payments are hidden."}
+        </p>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
@@ -1252,6 +1287,15 @@ function Settlements({ session }) {
                 <tr key={p.id} className="border-t border-slate-100">
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{p.bookings?.venues?.name || "—"}</span>
+                    {isTest(p) && (
+                      <span
+                        className="ml-2 inline-block text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 align-middle"
+                        title={`Test payment (${p.provider === "cashfree" ? "Cashfree" : "Razorpay"}). No real money was taken. Do not transfer anything for it.`}
+                        data-testid="test-badge"
+                      >
+                        TEST
+                      </span>
+                    )}
                     <span className="block text-xs text-slate-400 capitalize">{p.payment_type}</span>
                     {p.bookings?.status === "cancelled" && (
                       <span

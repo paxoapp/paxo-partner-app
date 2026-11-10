@@ -46,7 +46,7 @@ const inputCls = "mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm 
 
 const emptyForm = {
   title: "", description: "", venue_id: "", party_date: "", start_time: "20:00", end_time: "01:00", package_type: "", liquor_type: "",
-  price_per_person: "", male_seats: "", female_seats: "", min_paid_seats: "30", closes_local: "", max_seats_per_booking: "10",
+  price_per_person: "", male_seats: "", female_seats: "", min_paid_seats: "30", closes_local: "", max_seats_per_booking: "5", price_includes_tax: "yes", tax_percent: "18",
   cover_photo_url: "", terms_text: "", settlement_type: "", settlement_value: "", settlement_note: "",
   inclusions: "", dress_code: "", min_age: "21", highlights: "",
 };
@@ -59,7 +59,7 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
           start_time: hhmm(party.start_time), end_time: hhmm(party.end_time), package_type: party.package_type || "",
           liquor_type: party.liquor_type || "", price_per_person: String(party.price_per_person), male_seats: String(party.male_seats),
           female_seats: String(party.female_seats), min_paid_seats: String(party.min_paid_seats), closes_local: toIstLocal(party.closes_at),
-          max_seats_per_booking: String(party.max_seats_per_booking), cover_photo_url: party.cover_photo_url || "", terms_text: party.terms_text || "",
+          max_seats_per_booking: String(Math.min(party.max_seats_per_booking, 5)), price_includes_tax: party.price_includes_tax === false ? "no" : "yes", tax_percent: String(party.tax_percent ?? 18), cover_photo_url: party.cover_photo_url || "", terms_text: party.terms_text || "",
           settlement_type: "", settlement_value: "", settlement_note: "",
           inclusions: party.inclusions || "", dress_code: party.dress_code || "", min_age: String(party.min_age ?? 21), highlights: party.highlights || "",
         }
@@ -123,7 +123,9 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
     if (!(price > 0)) return "Enter the price per person.";
     if (!Number.isInteger(m) || m < 0 || !Number.isInteger(fe) || fe < 0 || m + fe < 1) return "Enter the male and female seats (whole numbers).";
     if (!Number.isInteger(min) || min < 1 || min > m + fe) return `Minimum paid seats must be between 1 and ${m + fe} (the total seats).`;
-    if (!Number.isInteger(max) || max < 1) return "Maximum seats per booking must be at least 1.";
+    if (!Number.isInteger(max) || max < 1 || max > 5) return "Maximum seats per booking must be a whole number from 1 to 5.";
+    const taxPct = Number(f.tax_percent);
+    if (f.tax_percent === "" || !(taxPct >= 0 && taxPct <= 100)) return "Enter the tax percent (0 to 100).";
     const age = Number(f.min_age);
     if (!Number.isInteger(age) || age < 18 || age > 25) return "Minimum age must be a whole number from 18 to 25.";
     if (f.settlement_type === "percentage" && Number(f.settlement_value) > 100) return "A settlement percentage cannot be above 100.";
@@ -143,6 +145,7 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
         start_time: f.start_time, end_time: f.end_time, package_type: f.package_type.trim(), liquor_type: f.liquor_type.trim(),
         price_per_person: Number(f.price_per_person), male_seats: Number(f.male_seats), female_seats: Number(f.female_seats),
         min_paid_seats: Number(f.min_paid_seats), max_seats_per_booking: Number(f.max_seats_per_booking),
+        price_includes_tax: f.price_includes_tax === "yes", tax_percent: Number(f.tax_percent),
         cover_photo_url: f.cover_photo_url || null,
         inclusions: f.inclusions.trim(), dress_code: f.dress_code.trim(), min_age: Number(f.min_age), highlights: f.highlights.trim(),
       };
@@ -293,8 +296,17 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
         <Field label="Price per person (₹)">
           <input type="number" min="1" className={inputCls} value={f.price_per_person} onChange={set("price_per_person")} disabled={locked} data-testid="party-price" />
         </Field>
-        <Field label="Maximum seats per booking">
-          <input type="number" min="1" className={inputCls} value={f.max_seats_per_booking} onChange={set("max_seats_per_booking")} />
+        <Field label="Does the price include tax?" hint={locked ? "Locked once guests have joined." : "Yes: guests pay exactly the price. No: tax is added on top."}>
+          <select className={inputCls} value={f.price_includes_tax} onChange={set("price_includes_tax")} disabled={locked} data-testid="party-tax-included">
+            <option value="yes">Yes, the price includes tax</option>
+            <option value="no">No, add tax on top</option>
+          </select>
+        </Field>
+        <Field label="Tax percent (GST)">
+          <input type="number" min="0" max="100" step="0.01" className={inputCls} value={f.tax_percent} onChange={set("tax_percent")} disabled={locked} data-testid="party-tax-percent" />
+        </Field>
+        <Field label="Maximum seats per account (1 to 5)">
+          <input type="number" min="1" max="5" className={inputCls} value={f.max_seats_per_booking} onChange={set("max_seats_per_booking")} data-testid="party-max-seats" />
         </Field>
         <Field label="Male seats">
           <input type="number" min="0" className={inputCls} value={f.male_seats} onChange={set("male_seats")} disabled={locked} data-testid="party-male" />

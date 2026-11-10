@@ -21,17 +21,28 @@ function Stat({ label, value, tone, testid }) {
   );
 }
 
+function GatewayTag({ r }) {
+  return (
+    <p className="text-xs mt-1" data-testid="refund-gateway">
+      <span className={`font-semibold ${r.provider === "cashfree" ? "text-violet-700" : "text-sky-700"}`}>{r.provider === "cashfree" ? "Cashfree" : "Razorpay"}</span>
+      {r.gateway_mode === "test" && <span className="ml-1 rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 font-semibold" data-testid="refund-test-badge">TEST</span>}
+      {r.gateway_payment_id ? <span className="text-slate-500 font-mono"> · {r.gateway_payment_id}</span> : null}
+    </p>
+  );
+}
+
 function RefundRow({ r, session, onDone }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(todayIst());
   const [note, setNote] = useState("");
+  const [cfRefundId, setCfRefundId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function mark() {
     setBusy(true);
     setError("");
     try {
-      await rpc(session.token, "party_mark_refunded", { p_payment_id: r.payment_id, p_date: date, p_note: note.trim() || null });
+      await rpc(session.token, "party_mark_refunded", { p_payment_id: r.payment_id, p_date: date, p_note: note.trim() || null, p_cashfree_refund_id: r.provider === "cashfree" ? cfRefundId.trim() || null : null });
       setOpen(false);
       await onDone();
     } catch (e) {
@@ -46,14 +57,16 @@ function RefundRow({ r, session, onDone }) {
       <td className="py-2 pr-3">
         <p className="font-medium text-slate-900">{r.customer_name || "Customer"}</p>
         <p className="text-xs text-slate-500">{r.phone || ""} {r.email || ""}</p>
+        <GatewayTag r={r} />
       </td>
-      <td className="py-2 pr-3 text-sm">{inr(r.refund_amount)}<p className="text-xs text-slate-500">of {inr(r.paid_amount)} paid ({r.kind})</p></td>
+      <td className="py-2 pr-3 text-sm"><span className="font-semibold" data-testid="refund-exact">{inr(r.refund_amount)}</span><p className="text-xs text-slate-500">of {inr(r.paid_amount)} paid ({r.kind})</p>{due && r.provider === "cashfree" && <p className="text-xs text-violet-700">Refund exactly this amount in the Cashfree dashboard.</p>}</td>
       <td className="py-2 pr-3 text-sm">{REASON[r.reason] || r.reason}<p className="text-xs text-slate-500">queued {fmtAt(r.queued_at)}</p></td>
       <td className="py-2 text-sm">
         {due ? (
           open ? (
             <div className="flex flex-col gap-2 min-w-[200px]">
               <input type="date" className={inputCls} value={date} max={todayIst()} onChange={(e) => setDate(e.target.value)} data-testid="refund-date" />
+              {r.provider === "cashfree" && <input className={inputCls} placeholder="Cashfree refund id (optional)" value={cfRefundId} onChange={(e) => setCfRefundId(e.target.value)} maxLength={100} data-testid="refund-cf-id" />}
               <input className={inputCls} placeholder="Note (bank reference…)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} data-testid="refund-note" />
               <div className="flex gap-3 items-center">
                 <button onClick={mark} disabled={busy} className="bg-emerald-600 text-white rounded px-3 py-1.5 text-sm disabled:opacity-50" data-testid="refund-confirm">{busy ? "Saving…" : "Save"}</button>
@@ -65,7 +78,7 @@ function RefundRow({ r, session, onDone }) {
             <button onClick={() => setOpen(true)} className="bg-slate-900 text-white rounded px-3 py-1.5 text-sm" data-testid="refund-mark">Mark refunded</button>
           )
         ) : (
-          <span className="text-emerald-700">Refunded {fmtDay(r.refunded_on)}{r.note ? <span className="text-slate-500"> · {r.note}</span> : null}</span>
+          <span className="text-emerald-700">Refunded {fmtDay(r.refunded_on)}{r.cashfree_refund_id ? <span className="text-slate-500 font-mono"> · {r.cashfree_refund_id}</span> : null}{r.note ? <span className="text-slate-500"> · {r.note}</span> : null}</span>
         )}
       </td>
     </tr>
@@ -77,6 +90,7 @@ export default function PartyMoney({ session, party }) {
   const [guests, setGuests] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [error, setError] = useState("");
+  const [showTest, setShowTest] = useState(false);
   const [sDate, setSDate] = useState(todayIst());
   const [sNote, setSNote] = useState("");
   const [sBusy, setSBusy] = useState(false);
@@ -85,7 +99,7 @@ export default function PartyMoney({ session, party }) {
   const load = useCallback(async () => {
     try {
       const [s, g, r] = await Promise.all([
-        rpc(session.token, "party_admin_summary", { p_party_id: party.id }),
+        rpc(session.token, "party_admin_summary", { p_party_id: party.id, p_include_test: showTest }),
         rpc(session.token, "party_admin_bookings", { p_party_id: party.id }),
         rpc(session.token, "party_admin_refunds", { p_party_id: party.id }),
       ]);
@@ -96,7 +110,7 @@ export default function PartyMoney({ session, party }) {
     } catch (e) {
       setError(e.message);
     }
-  }, [session.token, party.id]);
+  }, [session.token, party.id, showTest]);
   useEffect(() => {
     load();
   }, [load, party.status]);
@@ -123,6 +137,11 @@ export default function PartyMoney({ session, party }) {
   return (
     <div className="mb-6" data-testid="party-money">
       <h3 className="text-lg font-semibold mb-2">Seats and money</h3>
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-2">
+        <input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} data-testid="money-show-test" />
+        Include test payments in these totals{Number(sum.test_payments_count) > 0 ? ` (${sum.test_payments_count} test payment${Number(sum.test_payments_count) === 1 ? "" : "s"}, ${inr(sum.test_total_collected)})` : ""}
+      </label>
+      <p className="text-xs text-slate-500 mb-2" data-testid="money-mode-note">{sum.includes_test ? "Money totals include test payments." : "Money totals count live payments only. Seat counts include every paid seat."}</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
         <Stat label="Paid seats" value={sum.paid_seats} testid="sum-paid" />
         <Stat label="Male / Female paid" value={`${sum.paid_male} / ${sum.paid_female}`} testid="sum-split" />

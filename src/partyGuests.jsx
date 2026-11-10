@@ -40,13 +40,16 @@ export const invoiceCsv = (inv) =>
 export default function PartyGuests({ session, party }) {
   const [guests, setGuests] = useState(null);
   const [invoices, setInvoices] = useState(null);
+  const [people, setPeople] = useState([]);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
-      const [g, i] = await Promise.all([
+      const [g, i, pe] = await Promise.all([
         rpc(session.token, "party_admin_guest_list", { p_party_id: party.id }),
         rpc(session.token, "party_admin_invoices", { p_party_id: party.id }),
+        rpc(session.token, "party_admin_guests", { p_party_id: party.id }).catch(() => []),
       ]);
+      setPeople(pe || []);
       setGuests(g || []);
       setInvoices(i || []);
       setError("");
@@ -85,6 +88,33 @@ export default function PartyGuests({ session, party }) {
                     <td className="py-2 pr-3">{g.male} / {g.female}</td>
                     <td className="py-2 pr-3">{inr(g.amount_paid)}</td>
                     <td className="py-2">{g.balance_status}{Number(g.balance_due) > 0 ? <p className="text-xs text-slate-500">{inr(g.balance_due)} due{g.balance_due_by ? ` by ${fmtAt(g.balance_due_by)}` : ""}</p> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <p className="text-sm font-medium">Every guest ({people.length})</p>
+          <button type="button" disabled={!people.length} onClick={() => download(`every-guest-${slug(party.title)}.csv`, toCsv(["Guest name", "Age", "Gender", "Booked by", "Booker phone"], people.map((p) => [p.guest_name, p.guest_age, p.gender, p.booker_name, p.booker_phone])))}
+            className="bg-slate-900 text-white rounded px-3 py-1.5 text-xs disabled:opacity-50" data-testid="people-csv">Export CSV</button>
+        </div>
+        {people.length === 0 ? (
+          <p className="text-sm text-slate-500">No guest names yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm" data-testid="people-table">
+              <thead className="text-xs text-slate-500"><tr><th className="pr-3">Name</th><th className="pr-3">Age</th><th className="pr-3">Gender</th><th>Booked by</th></tr></thead>
+              <tbody>
+                {people.map((p, i) => (
+                  <tr key={i} className="border-t border-slate-200">
+                    <td className="py-1.5 pr-3">{p.guest_name || "—"}</td>
+                    <td className="py-1.5 pr-3">{p.guest_age ?? "—"}</td>
+                    <td className="py-1.5 pr-3 capitalize">{p.gender}</td>
+                    <td className="py-1.5">{p.booker_name || "Customer"} <span className="text-xs text-slate-500">{p.booker_phone || ""}</span></td>
                   </tr>
                 ))}
               </tbody>

@@ -4,7 +4,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // All rules (seats, genders, 30% / 100%, 10-minute hold, balance) live in the database function party_start_payment;
 // this file only asks Razorpay for an order for the row the database created, and verifies the payment afterwards.
 // Same Razorpay keys and the same signature check as the booking flow. Normal bookings never come through here.
-//   { action: "create", party_id, kind: "join" | "balance", genders?: ["male","female",..], accept_terms?: bool, terms_version?: int }
+//   { action: "create", party_id, kind: "join" | "balance", guests?: [{name, age, gender}], accept_terms?: bool, terms_version?: int }
 //   { action: "verify", razorpay_order_id, razorpay_payment_id, razorpay_signature }
 
 const RAZORPAY_KEY_ID = Deno.env.get("RAZORPAY_KEY_ID");
@@ -47,11 +47,16 @@ Deno.serve(async (req: Request) => {
       const { data: pay, error } = await caller.rpc("party_start_payment", {
         p_party_id: body.party_id,
         p_kind: body.kind,
-        p_genders: Array.isArray(body.genders) ? body.genders : null,
+        p_guests: Array.isArray(body.guests) ? body.guests : null,
         p_accept: body.accept_terms === true,
         p_terms_version: Number.isInteger(body.terms_version) ? body.terms_version : null,
       });
       if (error || !pay) return jsonRes({ error: error?.message ?? "Could not start the payment." }, 400);
+      if (pay.provider !== "razorpay") {
+        // the switch now says Cashfree: this function must not create a Razorpay order for a Cashfree payment row
+        await service.rpc("party_release_payment", { p_payment_id: pay.payment_id });
+        return jsonRes({ error: "The payment method just changed. Please try again." }, 409);
+      }
 
       const amountPaise = Math.round(Number(pay.amount) * 100);
       const rzp = await fetch("https://api.razorpay.com/v1/orders", {

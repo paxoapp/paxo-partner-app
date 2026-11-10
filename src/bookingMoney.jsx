@@ -113,7 +113,13 @@ export default function BookingMoneyPanel({ b, payment, addonTotal = 0 }) {
           <dl className="text-sm flex flex-col gap-1.5">
             <Row
               k="Deposit passed to you"
-              v={payment?.settlement_status === "settled" ? `Settled on ${fmtDate(payment.settled_at)}` : "Pending"}
+              v={
+                payment?.settlement_status === "settled"
+                  ? `Settled on ${fmtDate(payment.settled_at)}`
+                  : payment?.settlement_status === "n/a"
+                    ? "Nothing to transfer"
+                    : "Pending"
+              }
             />
             {payment?.settlement_notes && <Row k="Notes" v={payment.settlement_notes} />}
           </dl>

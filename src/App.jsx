@@ -3653,6 +3653,7 @@ export default function App() {
               {settlementBookings.map((b) => {
                 const payment = primaryPayment(b);
                 const isSettled = payment?.settlement_status === "settled";
+                const nothingToTransfer = payment?.settlement_status === "n/a";
                 const checkedIn = Boolean(b.event_started_at);
                 const hold = oneHold(b);
                 let badgeLabel, badgeClass;
@@ -3662,6 +3663,9 @@ export default function App() {
                 } else if (isSettled) {
                   badgeLabel = "Settled";
                   badgeClass = "bg-emerald-100 text-emerald-800";
+                } else if (nothingToTransfer) {
+                  badgeLabel = "Nothing to transfer";
+                  badgeClass = "bg-stone-100 text-stone-600";
                 } else if (b.status === "cancelled") {
                   badgeLabel = "Deposit pending (booking cancelled)";
                   badgeClass = "bg-rose-100 text-rose-800";

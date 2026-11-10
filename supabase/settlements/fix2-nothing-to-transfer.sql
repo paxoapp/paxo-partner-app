@@ -1,6 +1,6 @@
 -- Settlements fix 2: a payment whose whole deposit went back to the customer owes the venue nothing, so its
 -- settlement_status must say so ('n/a') instead of 'pending'.               (migration name: settlements_nothing_to_transfer)
--- NOT APPLIED. Written for review. It changes no amount, no refund, no booking, no hold and no edge function.
+-- APPLIED on 10 Nov 2026 (migration version 20261110073330). It changes no amount, no refund, no booking, no hold and no edge function.
 --
 -- Rule (the same sum the Settlements screen already uses to work out "To transfer to venue"):
 --   owed to the venue = deposit paid - refund to the customer - gateway fee deducted from that refund   (never below 0)

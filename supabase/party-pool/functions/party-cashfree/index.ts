@@ -1,4 +1,4 @@
-// party-cashfree  (verify_jwt = true)  — deployed as index.ts together with cashfree.ts. NOT DEPLOYED until the founder says so.
+// party-cashfree  (verify_jwt = true)  — deployed as index.ts together with cashfree.ts.
 // The Cashfree twin of party-payment (Razorpay). Same split of work: ALL money rules live in the database function
 // party_start_payment (seats, ages, 5-seat cap, tax, 30% / 100%, hold); this file only asks Cashfree for an order for the row the
 // database created, and verifies afterwards by asking Cashfree itself (never the browser).

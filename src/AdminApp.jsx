@@ -102,6 +102,24 @@ function logStatusChange(venue, action, note) {
   });
 }
 
+// Venues made through Party Pool "Add a new venue": host parties only, never published to customers.
+// The ids come from party_only_venues (admin-readable). If that table does not exist yet, nothing is party-only.
+async function fetchPartyOnlyIds(token) {
+  try {
+    const rows = await sb("/rest/v1/party_only_venues?select=venue_id&limit=5000", { token });
+    return new Set((rows || []).map((r) => r.venue_id));
+  } catch {
+    return new Set();
+  }
+}
+function PartyOnlyTag() {
+  return (
+    <span className="ml-2 align-middle text-[10px] font-medium uppercase tracking-wide bg-violet-100 text-violet-800 border border-violet-200 rounded px-1.5 py-0.5">
+      Party only
+    </span>
+  );
+}
+
 function StatusBadge({ status, verified }) {
   const cls =
     status === "approved"
@@ -486,7 +504,7 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
   // ShadowModeBanner checklist, same three id-only queries).
   const [shadowChecklist, setShadowChecklist] = useState(null);
   useEffect(() => {
-    if (venue.status !== "approved" || venue.is_live) return undefined;
+    if (venue.status !== "approved" || venue.is_live || venue.party_only) return undefined;
     let cancelled = false;
     Promise.all([
       sb(`/rest/v1/venue_images?venue_id=eq.${venue.id}&select=id`, { token: session.token }),
@@ -505,7 +523,7 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
     return () => {
       cancelled = true;
     };
-  }, [venue.id, venue.status, venue.is_live, session.token]);
+  }, [venue.id, venue.status, venue.is_live, venue.party_only, session.token]);
 
   async function toggleAddon(addon) {
     setAddonError("");
@@ -668,7 +686,17 @@ function VenueDetail({ session, venue, onBack, onUpdated }) {
 
       {venue.managed_by_paxo && <AgreementPanel session={session} venue={venue} />}
 
-      {venue.status === "approved" && !venue.is_live && (
+      {venue.party_only && (
+        <div className="border border-violet-200 bg-violet-50 rounded-lg p-4 mb-4">
+          <p className="text-sm font-medium text-violet-800">Party only</p>
+          <p className="text-xs text-violet-700 mt-1">
+            This venue exists only to host PAXO parties. It is not visible to customers as a venue and cannot be published
+            or booked. The "Publish to customers" button is hidden on purpose, and the database refuses it too.
+          </p>
+        </div>
+      )}
+
+      {venue.status === "approved" && !venue.is_live && !venue.party_only && (
         <div className="border border-sky-200 bg-sky-50 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between gap-3 mb-2">
             <p className="text-sm font-medium text-sky-800">Shadow mode — hidden from customers</p>
@@ -1724,14 +1752,16 @@ function PartnersAdmin({ session }) {
     setLoading(true);
     setError("");
     try {
-      const [v, b] = await Promise.all([
+      const [v, b, partyOnly] = await Promise.all([
         sb(
           "/rest/v1/venues?status=eq.approved&select=*,partner_users(full_name,phone)&order=name.asc&limit=5000",
           { token: session.token }
         ),
         sb("/rest/v1/bookings?select=id,venue_id,status&limit=5000", { token: session.token }),
+        fetchPartyOnlyIds(session.token),
       ]);
-      setVenues(v);
+      // party-only venues are not partner venues: leave them out of this list, the counts and the "not published" note
+      setVenues(v.filter((row) => !partyOnly.has(row.id)));
       setBookings(b);
     } catch (e) {
       setError(e.message);
@@ -3318,11 +3348,14 @@ export default function AdminApp() {
     try {
       // updated_at is trigger-maintained on every venue update, so rejected
       // venues that a partner edits/resubmits float back to the top.
-      const rows = await sb(
-        "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=updated_at.desc.nullslast,created_at.desc&limit=5000",
-        { token }
-      );
-      setVenues(rows);
+      const [rows, partyOnly] = await Promise.all([
+        sb(
+          "/rest/v1/venues?select=*,partner_users(full_name,phone)&order=updated_at.desc.nullslast,created_at.desc&limit=5000",
+          { token }
+        ),
+        fetchPartyOnlyIds(token),
+      ]);
+      setVenues(rows.map((r) => ({ ...r, party_only: partyOnly.has(r.id) })));
     } catch (e) {
       console.error(e);
     } finally {
@@ -3417,7 +3450,10 @@ export default function AdminApp() {
     );
   }
 
+  // party-only venues stay in the list (with a badge) but are not counted as approved/total venues
+  const partyOnlyCount = venues.filter((v) => v.party_only).length;
   const counts = venues.reduce((acc, v) => {
+    if (v.party_only) return acc;
     acc[v.status] = (acc[v.status] || 0) + 1;
     return acc;
   }, {});
@@ -3521,7 +3557,8 @@ export default function AdminApp() {
           <>
             <h1 className="text-2xl font-semibold mb-1">Venue review queue</h1>
             <p className="text-sm text-slate-500 mb-4">
-              {venues.length} venue{venues.length === 1 ? "" : "s"} total
+              {venues.length - partyOnlyCount} venue{venues.length - partyOnlyCount === 1 ? "" : "s"} total
+              {partyOnlyCount > 0 && ` · ${partyOnlyCount} party-only venue${partyOnlyCount === 1 ? "" : "s"} listed but not counted`}
             </p>
             <input
               type="text"
@@ -3568,7 +3605,7 @@ export default function AdminApp() {
                         onClick={() => setSelectedId(v.id)}
                         className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
                       >
-                        <td className="px-4 py-2.5 font-medium">{v.name}{v.open_to_negotiation && <NegotiableTag />}</td>
+                        <td className="px-4 py-2.5 font-medium">{v.name}{v.party_only && <PartyOnlyTag />}{v.open_to_negotiation && <NegotiableTag />}</td>
                         <td className="px-4 py-2.5 hidden sm:table-cell text-slate-600">{v.owner_name || "—"}</td>
                         <td className="px-4 py-2.5 hidden md:table-cell text-slate-600">{v.city}</td>
                         <td className="px-4 py-2.5 hidden md:table-cell text-slate-600">{fmtDate(v.submitted_at)}</td>

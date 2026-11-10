@@ -80,6 +80,38 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
   const locked = editing && seats.paid_male + seats.paid_female + seats.held > 0;
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
 
+  // "Add a new venue": a party-only venue made right here (admin_create_party_venue). It is never shown to customers as a venue.
+  const [newVenues, setNewVenues] = useState([]);
+  const venueList = [...venues, ...newVenues.filter((n) => !venues.some((v) => v.id === n.id))];
+  const [addingVenue, setAddingVenue] = useState(false);
+  const [nv, setNv] = useState({ name: "", city: "", area: "", address: "", maps: "", phone: "" });
+  const [nvBusy, setNvBusy] = useState(false);
+  const [nvError, setNvError] = useState("");
+  const [nvDup, setNvDup] = useState(false);
+  const setNvField = (k) => (e) => { setNvError(""); setNvDup(false); setNv((x) => ({ ...x, [k]: e.target.value })); };
+  async function createVenue(allowDuplicate) {
+    setNvError("");
+    if (!nv.name.trim() || !nv.city.trim()) return setNvError("Venue name and city are required.");
+    setNvBusy(true);
+    try {
+      const id = await sb("/rest/v1/rpc/admin_create_party_venue", {
+        method: "POST", token: session.token,
+        body: { p_name: nv.name, p_city: nv.city, p_area: nv.area, p_address: nv.address, p_maps: nv.maps, p_phone: nv.phone, p_allow_duplicate: allowDuplicate },
+      });
+      setNewVenues((l) => [...l, { id, name: nv.name.trim(), city: nv.city.trim(), party_only: true }]);
+      setF((x) => ({ ...x, venue_id: id }));
+      setAddingVenue(false);
+      setNv({ name: "", city: "", area: "", address: "", maps: "", phone: "" });
+      setNvDup(false);
+    } catch (e) {
+      const m = String(e.message || "");
+      if (/already exists in this city/i.test(m)) { setNvDup(true); setNvError(m); }
+      else setNvError(m);
+    } finally {
+      setNvBusy(false);
+    }
+  }
+
   // the admin-only settlement is its own table; load it for this party
   useEffect(() => {
     if (!party) return;
@@ -269,13 +301,48 @@ function PartyEditor({ session, party, venues, seatCounts, onBack, onSaved }) {
           <input type="number" min="18" max="25" className={inputCls} value={f.min_age} onChange={set("min_age")} data-testid="party-minage" />
         </Field>
         <Field label="Venue">
-          <select className={inputCls} value={f.venue_id} onChange={set("venue_id")} disabled={locked} data-testid="party-venue">
+          <select
+            className={inputCls}
+            value={addingVenue ? "__new__" : f.venue_id}
+            onChange={(e) => (e.target.value === "__new__" ? setAddingVenue(true) : (setAddingVenue(false), set("venue_id")(e)))}
+            disabled={locked}
+            data-testid="party-venue"
+          >
             <option value="">Choose a venue…</option>
-            {venues.map((v) => (
-              <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}</option>
+            {!locked && <option value="__new__">+ Add a new venue</option>}
+            {venueList.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}{v.party_only ? " (party only)" : ""}</option>
             ))}
           </select>
         </Field>
+        {addingVenue && !locked && (
+          <div className="sm:col-span-2 border border-violet-200 bg-violet-50 rounded-lg p-4" data-testid="new-venue-form">
+            <p className="text-sm font-medium text-violet-800 mb-1">New party-only venue</p>
+            <p className="text-xs text-violet-700 mb-3">
+              Only for hosting parties. It will not appear to customers as a venue and cannot be booked. A venue with a partner login is added the normal way.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Venue name *"><input className={inputCls} maxLength={200} value={nv.name} onChange={setNvField("name")} data-testid="nv-name" /></Field>
+              <Field label="City *"><input className={inputCls} maxLength={100} value={nv.city} onChange={setNvField("city")} data-testid="nv-city" /></Field>
+              <Field label="Area"><input className={inputCls} maxLength={100} value={nv.area} onChange={setNvField("area")} data-testid="nv-area" /></Field>
+              <Field label="Contact phone (optional)"><input className={inputCls} maxLength={20} value={nv.phone} onChange={setNvField("phone")} data-testid="nv-phone" /></Field>
+              <div className="sm:col-span-2"><Field label="Address"><input className={inputCls} maxLength={300} value={nv.address} onChange={setNvField("address")} data-testid="nv-address" /></Field></div>
+              <div className="sm:col-span-2"><Field label="Google Maps link (optional)"><input className={inputCls} maxLength={500} value={nv.maps} onChange={setNvField("maps")} data-testid="nv-maps" /></Field></div>
+            </div>
+            {nvError && <p className="text-rose-600 text-sm mt-2" data-testid="nv-error">{nvError}</p>}
+            <div className="flex flex-wrap gap-2 mt-3">
+              <button type="button" disabled={nvBusy} onClick={() => createVenue(false)} className="text-sm bg-slate-900 text-white rounded px-3 py-1.5 disabled:opacity-50" data-testid="nv-create">
+                {nvBusy ? "Creating…" : "Create venue"}
+              </button>
+              {nvDup && (
+                <button type="button" disabled={nvBusy} onClick={() => createVenue(true)} className="text-sm border border-slate-400 rounded px-3 py-1.5 disabled:opacity-50" data-testid="nv-create-anyway">
+                  Create anyway (it is a different venue)
+                </button>
+              )}
+              <button type="button" disabled={nvBusy} onClick={() => { setAddingVenue(false); setNvError(""); setNvDup(false); }} className="text-sm text-slate-600 px-3 py-1.5">Cancel</button>
+            </div>
+          </div>
+        )}
         <Field label="Date">
           <input type="date" className={inputCls} value={f.party_date} onChange={set("party_date")} disabled={locked} data-testid="party-date" />
         </Field>
@@ -426,13 +493,16 @@ export default function PartyPoolAdmin({ session }) {
     setLoading(true);
     setError("");
     try {
-      const [p, v, s] = await Promise.all([
+      const [p, v, s, po] = await Promise.all([
         sb("/rest/v1/parties?select=*&order=starts_at.desc&limit=1000", { token: session.token }),
         sb("/rest/v1/venues?select=id,name,city&order=name.asc&limit=2000", { token: session.token }),
         sb("/rest/v1/party_seats?select=party_id,gender,status&limit=20000", { token: session.token }),
+        // which venues are party-only (the table appears with the phase 5 migration; before it, nothing is party-only)
+        sb("/rest/v1/party_only_venues?select=venue_id&limit=5000", { token: session.token }).catch(() => []),
       ]);
+      const partyOnly = new Set((po || []).map((r) => r.venue_id));
       setParties(p || []);
-      setVenues(v || []);
+      setVenues((v || []).map((x) => ({ ...x, party_only: partyOnly.has(x.id) })));
       setSeatRows(s || []);
     } catch (e) {
       setError(e.message);

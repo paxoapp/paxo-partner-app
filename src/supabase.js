@@ -83,27 +83,42 @@ const PHOTOS_BUCKET = "venue-photos";
 // requires the first path segment to be the partner's venue_id, same
 // ownership pattern as uploadPartnerDocument. Returns the object's public
 // URL directly — no signing needed since the bucket is public.
-export async function uploadVenuePhoto(token, venueId, file) {
+// Uses XHR rather than fetch so callers can show upload progress
+// (onProgress gets 0..1). The short random suffix keeps names unique when
+// several photos start in the same millisecond (x-upsert would otherwise
+// overwrite one with another).
+export function uploadVenuePhoto(token, venueId, file, onProgress) {
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const objectPath = `${venueId}/${Date.now()}.${ext}`;
-  const res = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/${PHOTOS_BUCKET}/${encodeURIComponent(objectPath).replace(/%2F/g, "/")}`,
-    {
-      method: "POST",
-      headers: {
-        apikey: ANON_KEY,
-        Authorization: `Bearer ${token}`,
-        "Content-Type": file.type || "application/octet-stream",
-        "x-upsert": "true",
-      },
-      body: file,
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const objectPath = `${venueId}/${Date.now()}-${suffix}.${ext}`;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${SUPABASE_URL}/storage/v1/object/${PHOTOS_BUCKET}/${encodeURIComponent(objectPath).replace(/%2F/g, "/")}`);
+    xhr.setRequestHeader("apikey", ANON_KEY);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("x-upsert", "true");
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
     }
-  );
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(JSON.parse(t || "{}")?.message || "Upload failed");
-  }
-  return `${SUPABASE_URL}/storage/v1/object/public/${PHOTOS_BUCKET}/${objectPath}`;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(`${SUPABASE_URL}/storage/v1/object/public/${PHOTOS_BUCKET}/${objectPath}`);
+        return;
+      }
+      let message = "Upload failed";
+      try {
+        message = JSON.parse(xhr.responseText || "{}")?.message || message;
+      } catch (_e) {
+        /* keep the generic message */
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error("Network error — check your connection"));
+    xhr.send(file);
+  });
 }
 
 export async function deleteVenuePhoto(token, objectPath) {
